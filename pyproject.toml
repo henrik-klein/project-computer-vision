@@ -1,0 +1,25 @@
+[project]
+name = "project-2d"
+version = "0.1.0"
+description = "Seven-segment display reader — classical CV pipeline"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "matplotlib>=3.9.4",
+    "numpy>=2.0.2",
+    "opencv-python>=4.13.0.92",
+    "scikit-image>=0.24.0",
+    "scipy>=1.13.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["python"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]
