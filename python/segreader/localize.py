@@ -238,17 +238,24 @@ def find_display(
         crop, debug, found = _find_by_contour(img_bgr, **contour_args)
         method_used = "contour" if found else "none"
     elif method == "auto":
-        # color first: data shows color+B outperforms brightness+gray across the dataset.
+        # A crop that covers ≥75 % of the original image didn't really isolate
+        # anything useful — treat it the same as "not found" and try the next method.
+        img_area = img_bgr.shape[0] * img_bgr.shape[1]
+
+        def _useful(c) -> bool:
+            return c is not None and (c.shape[0] * c.shape[1]) < 0.75 * img_area
+
         crop, debug, found = _find_by_color(img_bgr, color_ranges=color_ranges, **shared)
         method_used = "color"
-        if not found:
+        if not found or not _useful(crop):
             crop, debug, found = _find_by_brightness(img_bgr, **shared)
             method_used = "brightness"
-        if not found:
+        if not found or not _useful(crop):
             crop, debug, found = _find_by_contour(img_bgr, **contour_args)
             method_used = "contour"
-        if not found:
+        if not found or not _useful(crop):
             method_used = "none"
+            found = False
     else:
         raise ValueError(f"Unknown method {method!r}. Use brightness/color/contour/auto.")
 

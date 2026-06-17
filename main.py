@@ -107,6 +107,19 @@ def main() -> None:
         number_str, annotated, steps = result
     else:
         number_str, annotated = result
+        
+    if args.processed:
+        out_dir, json_steps = _save_processed(steps, args.image_path)
+        payload = {
+            "image_path": args.image_path,
+            "result": number_str,
+            "params": {"segment_threshold": args.threshold, "backend": args.backend},
+            "steps": json_steps,
+        }
+        json_path = os.path.join(out_dir, "steps.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        print(f"Verarbeitungsschritte: {out_dir}/  ({len(steps)} PNGs + steps.json)")
 
     if not number_str.replace("?", ""):
         print("Warnung: Keine Ziffern erkannt.", file=sys.stderr)
@@ -124,20 +137,6 @@ def main() -> None:
             out_path = f"{base}_annotated{ext}"
         save_image(out_path, annotated)
         print(f"Annotiertes Bild gespeichert: {out_path}")
-
-    if args.processed:
-        out_dir, json_steps = _save_processed(steps, args.image_path)
-        payload = {
-            "image_path": args.image_path,
-            "result": number_str,
-            "params": {"segment_threshold": args.threshold, "backend": args.backend},
-            "steps": json_steps,
-        }
-        json_path = os.path.join(out_dir, "steps.json")
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
-        print(f"Verarbeitungsschritte: {out_dir}/  ({len(steps)} PNGs + steps.json)")
-
 
 if __name__ == "__main__":
     main()

@@ -59,14 +59,20 @@ def run_pipeline(
     # ── Lokalisierung der Anzeigeregion ───────────────────────────────────────
     crop, debug_img, found, method_used = find_display(img_bgr, method="auto")
 
+    img_area = img_bgr.shape[0] * img_bgr.shape[1]
+    crop_area = crop.shape[0] * crop.shape[1]
+    coverage = round(crop_area / img_area, 3)
+
     _step("localize", "Display Localization",
-          "Auto strategy tries color → brightness → contour in order and stops at "
-          "the first method that finds a region large enough. "
-          "The crop is used for all subsequent steps; if nothing is found the full "
-          "image is passed through unchanged.",
+          "Auto strategy tries color → brightness → contour in order. "
+          "A method is accepted only if its crop covers less than 75 % of the original image — "
+          "larger crops mean nothing was actually isolated and the next method is tried. "
+          f"Winner: '{method_used}' ({'found' if found else 'not found — full image used'}, "
+          f"crop covers {coverage:.1%} of original).",
           visualisation.localize(debug_img, method_used, found),
           {"method_used": method_used, "found": found,
-           "crop_width": crop.shape[1], "crop_height": crop.shape[0]})
+           "crop_width": crop.shape[1], "crop_height": crop.shape[0],
+           "coverage": coverage})
 
     # ── Punktoperation: Graustufenkonvertierung ───────────────────────────────
     gray = preprocess.to_grayscale(crop)

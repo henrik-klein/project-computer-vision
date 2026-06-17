@@ -11,3 +11,4 @@ build/
 
 data/samples/*_annotated*
 data/processed/*
+data/testing/*
