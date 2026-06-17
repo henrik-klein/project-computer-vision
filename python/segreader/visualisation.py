@@ -91,6 +91,26 @@ class visualisation:
         return out
 
     @staticmethod
+    def localize(debug_img: np.ndarray, method_used: str, found: bool) -> np.ndarray:
+        """Overlay a status banner on the debug image returned by find_display.
+
+        The debug_img already contains the bounding-box annotation drawn by
+        localize.py. This method adds a top stripe that documents which of the
+        three auto strategies succeeded (color → brightness → contour) and
+        whether a display region was actually found.
+        """
+        out = debug_img.copy()
+        h, w = out.shape[:2]
+        cv2.rectangle(out, (0, 0), (w, 30), (0, 0, 0), -1)
+        color = (0, 200, 60) if found else (60, 100, 220)
+        label = (f"auto → {method_used}  |  display found ✓"
+                 if found else
+                 f"auto → {method_used}  |  not found — full image used")
+        cv2.putText(out, label, (8, 21),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.52, color, 1, cv2.LINE_AA)
+        return out
+
+    @staticmethod
     def otsu_threshold(gray: np.ndarray) -> int:
         hist = np.bincount(gray.ravel(), minlength=256).astype(np.float64)
         prob = hist / hist.sum()

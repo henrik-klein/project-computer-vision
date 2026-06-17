@@ -5,6 +5,7 @@ import numpy as np
 
 from . import io, preprocess, morphology, labeling, segment, decode, backend as backend_mod
 from .decode import SEGMENT_ZONES
+from .localize import find_display
 from .visualisation import visualisation
 
 
@@ -55,8 +56,20 @@ def run_pipeline(
           {"width": img_bgr.shape[1], "height": img_bgr.shape[0],
            "original_width": w0, "was_resized": was_resized})
 
+    # ── Lokalisierung der Anzeigeregion ───────────────────────────────────────
+    crop, debug_img, found, method_used = find_display(img_bgr, method="auto")
+
+    _step("localize", "Display Localization",
+          "Auto strategy tries color → brightness → contour in order and stops at "
+          "the first method that finds a region large enough. "
+          "The crop is used for all subsequent steps; if nothing is found the full "
+          "image is passed through unchanged.",
+          visualisation.localize(debug_img, method_used, found),
+          {"method_used": method_used, "found": found,
+           "crop_width": crop.shape[1], "crop_height": crop.shape[0]})
+
     # ── Punktoperation: Graustufenkonvertierung ───────────────────────────────
-    gray = preprocess.to_grayscale(img_bgr)
+    gray = preprocess.to_grayscale(crop)
 
     _step("grayscale", "Convert to Grayscale",
           "Weighted luma sum Y = 0.114·B + 0.587·G + 0.299·R. "
@@ -229,7 +242,7 @@ def run_pipeline(
         })
 
     # ── Annotiertes Ergebnisbild ──────────────────────────────────────────────
-    annotated = io.draw_annotations(img_bgr, digit_boxes, digits, number_str)
+    annotated = io.draw_annotations(crop, digit_boxes, digits, number_str)
 
     _step("result", "Final Result",
           f"Decoded: {number_str}. Green boxes = recognised digits; red = unknown ('?').",
