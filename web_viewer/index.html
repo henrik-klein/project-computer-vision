@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Segment Reader — Evaluation Report</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #0f1117; color: #e2e8f0;
+    min-height: 100vh; padding: 2rem;
+  }
+
+  h1 { font-size: 1.5rem; font-weight: 600; color: #f8fafc; margin-bottom: 0.25rem; }
+  h2 { font-size: 1rem; font-weight: 500; color: #94a3b8; margin-bottom: 1.5rem; }
+
+  /* ── File loader ── */
+  .loader { display: flex; gap: 1.5rem; flex-wrap: wrap; margin: 2rem 0; }
+  .file-slot {
+    flex: 1; min-width: 220px; background: #1e2330;
+    border: 1.5px dashed #334155; border-radius: 10px; padding: 1.25rem 1.5rem;
+  }
+  .file-slot label {
+    display: block; font-size: 0.75rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .05em; color: #64748b; margin-bottom: 0.5rem;
+  }
+  .file-slot input[type="file"] { width: 100%; color: #cbd5e1; font-size: 0.85rem; }
+  .file-status { margin-top: 0.5rem; font-size: 0.78rem; color: #475569; }
+  .file-status.ok  { color: #34d399; }
+  .file-status.err { color: #f87171; }
+
+  /* ── Meta strip ── */
+  #meta-info {
+    background: #1e2330; border-radius: 10px; padding: 0.75rem 1.25rem;
+    font-size: 0.78rem; color: #64748b; margin-bottom: 1.5rem;
+    display: none; gap: 2rem; flex-wrap: wrap;
+  }
+  #meta-info span { white-space: nowrap; }
+  #meta-info strong { color: #94a3b8; }
+
+  /* ── Combination analysis panel ── */
+  #combo-panel {
+    display: none; background: #1e2330; border-radius: 12px;
+    padding: 1.5rem; margin-bottom: 1.75rem;
+  }
+  .combo-panel-title {
+    font-size: 1rem; font-weight: 600; color: #f8fafc; margin-bottom: 1.25rem;
+    display: flex; align-items: center; gap: 0.75rem;
+  }
+  .combo-panel-title span { font-size: 0.75rem; font-weight: 400; color: #64748b; }
+
+  /* top row: heatmap + legend */
+  .combo-top { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+
+  /* heatmap */
+  .heatmap-wrap { flex: 0 0 auto; }
+  .heatmap-title { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #64748b; margin-bottom: 0.6rem; }
+  table.heatmap { border-collapse: separate; border-spacing: 4px; }
+  table.heatmap th {
+    font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em;
+    color: #64748b; padding: 0 0.5rem 0.25rem; text-align: center;
+  }
+  table.heatmap th.row-header { text-align: right; padding-right: 0.6rem; }
+  table.heatmap td {
+    width: 82px; padding: 0.45rem 0.5rem; border-radius: 6px;
+    text-align: center; font-size: 0.8rem; font-weight: 700; cursor: default;
+    transition: filter .15s;
+  }
+  table.heatmap td:hover { filter: brightness(1.2); }
+  table.heatmap td .cell-pct  { display: block; line-height: 1.2; }
+  table.heatmap td .cell-frac { display: block; font-size: 0.65rem; font-weight: 400; color: rgba(255,255,255,.5); }
+
+  /* method-summary bars */
+  .method-summary { flex: 1; min-width: 200px; }
+  .method-summary-title { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #64748b; margin-bottom: 0.6rem; }
+  .msrow { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.55rem; }
+  .msrow-label { width: 80px; font-size: 0.78rem; color: #94a3b8; text-align: right; flex-shrink: 0; }
+  .msrow-bar-bg { flex: 1; background: #0f1117; border-radius: 999px; height: 10px; overflow: hidden; }
+  .msrow-bar-fg { height: 100%; border-radius: 999px; }
+  .msrow-pct { width: 42px; font-size: 0.78rem; font-weight: 700; text-align: right; flex-shrink: 0; }
+
+  /* channel summary bars */
+  .channel-summary { flex: 1; min-width: 160px; }
+
+  /* chart */
+  .combo-chart-wrap { margin-bottom: 1.5rem; }
+  .combo-chart-title { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #64748b; margin-bottom: 0.6rem; }
+  #combo-chart { display: block; width: 100%; border-radius: 8px; background: #0f1117; }
+
+  /* ranked table */
+  .ranked-title { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #64748b; margin-bottom: 0.6rem; }
+  table.ranked {
+    width: 100%; border-collapse: collapse; font-size: 0.82rem;
+  }
+  table.ranked th {
+    padding: 0.4rem 0.75rem; text-align: left; font-size: 0.72rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .05em; color: #64748b;
+    border-bottom: 1px solid #334155; cursor: pointer; user-select: none; white-space: nowrap;
+  }
+  table.ranked th:hover { color: #e2e8f0; }
+  table.ranked th.sort-asc::after  { content: ' ↑'; }
+  table.ranked th.sort-desc::after { content: ' ↓'; }
+  table.ranked td { padding: 0.45rem 0.75rem; border-bottom: 1px solid #1a1f2e; }
+  table.ranked td:first-child { color: #475569; font-size: 0.72rem; }
+  table.ranked tr:last-child td { border-bottom: none; }
+  table.ranked tr:hover td { background: rgba(255,255,255,.02); }
+  .bar-cell { display: flex; align-items: center; gap: 0.5rem; }
+  .bar-cell-bg { flex: 1; background: #0f1117; border-radius: 999px; height: 7px; overflow: hidden; min-width: 60px; }
+  .bar-cell-fg { height: 100%; border-radius: 999px; }
+  .method-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle;
+  }
+
+  /* ── Threshold analysis ── */
+  .thresh-tabs { display: flex; gap: 0.4rem; margin-bottom: 0.9rem; flex-wrap: wrap; }
+  .thresh-tab {
+    background: #0f1117; border: 1.5px solid #334155; color: #64748b;
+    border-radius: 6px; padding: 0.3rem 0.75rem; font-size: 0.8rem;
+    cursor: pointer; transition: all .15s; font-family: monospace;
+  }
+  .thresh-tab:hover  { border-color: #6366f1; color: #e2e8f0; }
+  .thresh-tab.active { color: #fff; border-color: transparent; }
+  .thresh-layout { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
+  #thresh-chart { display: block; width: 100%; border-radius: 8px; background: #0f1117; }
+
+  /* ── Overall stats ── */
+  #stats { display: none; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.75rem; }
+  .stat-card {
+    flex: 1; min-width: 120px; background: #1e2330;
+    border-radius: 10px; padding: 1rem 1.25rem; border-top: 3px solid transparent;
+  }
+  .stat-card.total     { border-color: #6366f1; }
+  .stat-card.correct   { border-color: #34d399; }
+  .stat-card.wrong     { border-color: #f87171; }
+  .stat-card.unlabeled { border-color: #f59e0b; }
+  .stat-card .value { font-size: 2rem; font-weight: 700; line-height: 1; }
+  .stat-card .label { font-size: 0.75rem; color: #64748b; margin-top: 0.25rem; text-transform: uppercase; letter-spacing: .05em; }
+  .accuracy-bar-wrap { flex: 100%; background: #1e2330; border-radius: 10px; padding: 1rem 1.25rem; }
+  .accuracy-bar-label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 0.5rem; }
+  .accuracy-bar-bg { background: #0f1117; border-radius: 999px; height: 10px; overflow: hidden; }
+  .accuracy-bar-fg { height: 100%; border-radius: 999px; background: linear-gradient(90deg,#6366f1,#34d399); transition: width .6s; }
+  .accuracy-pct { font-size: 1.25rem; font-weight: 700; margin-top: 0.35rem; }
+
+  /* ── Filter controls ── */
+  #controls { display: none; gap: 0.5rem; margin-bottom: 1.25rem; flex-wrap: wrap; align-items: center; }
+  .filter-btn {
+    background: #1e2330; border: 1.5px solid #334155; color: #94a3b8;
+    border-radius: 6px; padding: 0.35rem 0.85rem; font-size: 0.82rem; cursor: pointer; transition: all .15s;
+  }
+  .filter-btn:hover { border-color: #6366f1; color: #e2e8f0; }
+  .filter-btn.active { background: #6366f1; border-color: #6366f1; color: #fff; }
+  #search-input {
+    margin-left: auto; background: #1e2330; border: 1.5px solid #334155;
+    color: #e2e8f0; border-radius: 6px; padding: 0.35rem 0.75rem;
+    font-size: 0.82rem; outline: none; width: 180px;
+  }
+  #search-input:focus { border-color: #6366f1; }
+
+  /* ── Results grid ── */
+  #results { display: none; }
+  .result-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px,1fr)); gap: 1rem; }
+  .result-card {
+    background: #1e2330; border-radius: 10px; overflow: hidden;
+    border: 1.5px solid #1e2330; cursor: pointer; transition: border-color .15s, transform .1s;
+  }
+  .result-card:hover { border-color: #6366f1; transform: translateY(-2px); }
+  .result-card.correct   { border-top: 3px solid #34d399; }
+  .result-card.wrong     { border-top: 3px solid #f87171; }
+  .result-card.unlabeled { border-top: 3px solid #f59e0b; }
+  .result-card.error     { border-top: 3px solid #94a3b8; }
+  .card-img { width: 100%; aspect-ratio: 4/3; object-fit: contain; background: #0f1117; display: block; }
+  .card-img-placeholder { width: 100%; aspect-ratio: 4/3; background: #0f1117; display: flex; align-items: center; justify-content: center; color: #334155; font-size: 0.8rem; }
+  .card-body { padding: 0.75rem 1rem; }
+  .card-name { font-size: 0.78rem; color: #64748b; margin-bottom: 0.5rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; margin-bottom: 0.25rem; }
+  .card-row .field { color: #64748b; font-size: 0.75rem; }
+  .val { font-weight: 600; font-family: monospace; font-size: 0.95rem; }
+  .val.correct { color: #34d399; } .val.wrong { color: #f87171; } .val.neutral { color: #94a3b8; }
+  .badge { display: inline-block; border-radius: 4px; font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.4rem; letter-spacing: .04em; text-transform: uppercase; }
+  .badge.correct   { background: #052e16; color: #34d399; }
+  .badge.wrong     { background: #2d0a0a; color: #f87171; }
+  .badge.unlabeled { background: #2d1f00; color: #f59e0b; }
+  .badge.error     { background: #1a1a2e; color: #94a3b8; }
+  #empty-state { text-align: center; color: #475569; padding: 3rem; display: none; }
+
+  /* ── Modal ── */
+  .modal-backdrop {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,.75);
+    z-index: 100; align-items: center; justify-content: center; padding: 2rem;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: #1e2330; border-radius: 14px; max-width: 960px; width: 100%;
+    max-height: 90vh; overflow-y: auto; box-shadow: 0 24px 80px rgba(0,0,0,.6);
+  }
+  .modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1.25rem 1.5rem; border-bottom: 1px solid #334155;
+    position: sticky; top: 0; background: #1e2330; z-index: 1;
+  }
+  .modal-title { font-size: 1rem; font-weight: 600; color: #f8fafc; font-family: monospace; }
+  .modal-close { background: none; border: none; color: #64748b; font-size: 1.4rem; cursor: pointer; line-height: 1; padding: 0.2rem 0.4rem; border-radius: 4px; }
+  .modal-close:hover { color: #e2e8f0; background: #334155; }
+  .modal-body { padding: 1.5rem; }
+  .modal-img { width: 100%; border-radius: 8px; display: block; background: #0f1117; object-fit: contain; max-height: 380px; }
+  .modal-img-placeholder { width: 100%; height: 180px; background: #0f1117; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #334155; }
+  .modal-section { margin-top: 1.5rem; }
+  .modal-section-title { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #64748b; margin-bottom: 0.75rem; }
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px,1fr)); gap: 0.65rem; }
+  .meta-item { background: #0f1117; border-radius: 8px; padding: 0.65rem 0.9rem; }
+  .meta-item .mk { font-size: 0.68rem; color: #64748b; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 0.2rem; }
+  .meta-item .mv { font-size: 0.9rem; font-weight: 600; color: #e2e8f0; font-family: monospace; }
+  .mv.correct { color: #34d399; } .mv.wrong { color: #f87171; } .mv.neutral { color: #94a3b8; }
+  .attempts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: 0.65rem; margin-top: 0.75rem; }
+  .attempt-card { background: #0f1117; border-radius: 8px; overflow: hidden; border: 1.5px solid #1e2330; }
+  .attempt-card.winner { border-color: #6366f1; }
+  .attempt-card img { width: 100%; aspect-ratio: 4/3; object-fit: contain; display: block; background: #000; }
+  .attempt-info { padding: 0.35rem 0.5rem; }
+  .attempt-label { font-size: 0.68rem; color: #64748b; line-height: 1.45; }
+  .attempt-label strong { color: #e2e8f0; font-family: monospace; font-size: 0.78rem; }
+  .tag {
+    display: inline-block; font-size: 0.6rem; font-weight: 700; border-radius: 3px;
+    padding: 0.05rem 0.28rem; margin-left: 0.25rem; text-transform: uppercase;
+  }
+  .tag.winner   { background: #312e81; color: #a5b4fc; }
+  .tag.correct  { background: #052e16; color: #34d399; }
+</style>
+</head>
+<body>
+
+<h1>Segment Reader — Evaluation Report</h1>
+<h2>Load a samples file (ground truth) and a result file to compare.</h2>
+
+<div class="loader">
+  <div class="file-slot">
+    <label>Ground Truth — samples.json</label>
+    <input type="file" id="file-samples" accept=".json">
+    <div class="file-status" id="status-samples">No file selected</div>
+  </div>
+  <div class="file-slot">
+    <label>Predictions — result.json</label>
+    <input type="file" id="file-results" accept=".json">
+    <div style="display:flex;align-items:center;gap:.6rem;margin-top:.5rem">
+      <div class="file-status" id="status-results" style="margin-top:0">No file selected</div>
+      <button id="reload-btn" title="Reload result.json from disk" style="display:none;
+        background:#1e2330;border:1.5px solid #334155;color:#94a3b8;border-radius:6px;
+        padding:.25rem .65rem;font-size:.78rem;cursor:pointer;white-space:nowrap;
+        transition:all .15s">⟳ Reload</button>
+    </div>
+  </div>
+</div>
+
+<div id="meta-info"></div>
+
+<!-- ══════════ COMBINATION ANALYSIS ══════════ -->
+<div id="combo-panel">
+  <div class="combo-panel-title">
+    Combination Analysis
+    <span id="combo-subtitle"></span>
+  </div>
+
+  <!-- Heatmap + summaries -->
+  <div class="combo-top">
+    <div class="heatmap-wrap">
+      <div class="heatmap-title">Accuracy heatmap — method × channel</div>
+      <table class="heatmap" id="combo-heatmap"></table>
+    </div>
+    <div class="method-summary">
+      <div class="method-summary-title">Best accuracy per method</div>
+      <div id="method-summary-bars"></div>
+    </div>
+    <div class="channel-summary">
+      <div class="method-summary-title">Best accuracy per channel</div>
+      <div id="channel-summary-bars"></div>
+    </div>
+  </div>
+
+  <!-- Bar chart -->
+  <div class="combo-chart-wrap">
+    <div class="combo-chart-title">All combinations — sorted by accuracy</div>
+    <canvas id="combo-chart" height="340"></canvas>
+  </div>
+
+  <!-- Ranked table -->
+  <div>
+    <div class="ranked-title">Full ranking (click column headers to sort)</div>
+    <table class="ranked" id="combo-ranked">
+      <thead>
+        <tr>
+          <th data-col="rank">#</th>
+          <th data-col="method">Method</th>
+          <th data-col="channel">Channel</th>
+          <th data-col="correct">Correct</th>
+          <th data-col="labeled">Labeled</th>
+          <th data-col="pct">Accuracy</th>
+          <th style="min-width:120px">Bar</th>
+        </tr>
+      </thead>
+      <tbody id="combo-ranked-body"></tbody>
+    </table>
+  </div>
+
+  <!-- Threshold analysis (only visible when threshold_results present) -->
+  <div id="thresh-section" style="display:none; margin-top:1.75rem;">
+    <div class="ranked-title" style="margin-bottom:.75rem">
+      Threshold Analysis — accuracy per threshold × channel
+      <span style="font-weight:400;color:#475569;text-transform:none;letter-spacing:0"> (select a localize method)</span>
+    </div>
+    <div class="thresh-tabs" id="thresh-tabs"></div>
+    <div class="thresh-layout">
+      <div>
+        <table class="heatmap" id="thresh-heatmap"></table>
+      </div>
+      <div style="flex:1;min-width:260px">
+        <div class="combo-chart-title" style="margin-bottom:.4rem">Accuracy vs threshold per channel</div>
+        <canvas id="thresh-chart"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ OVERALL STATS ══════════ -->
+<div id="stats">
+  <div class="stat-card total">   <div class="value" id="stat-total">0</div>    <div class="label">Total</div></div>
+  <div class="stat-card correct"> <div class="value" id="stat-correct">0</div>  <div class="label">Correct</div></div>
+  <div class="stat-card wrong">   <div class="value" id="stat-wrong">0</div>    <div class="label">Wrong</div></div>
+  <div class="stat-card unlabeled"><div class="value" id="stat-unlabeled">0</div><div class="label">Unlabeled</div></div>
+  <div class="accuracy-bar-wrap">
+    <div class="accuracy-bar-label">Accuracy (labeled images only)</div>
+    <div class="accuracy-bar-bg"><div class="accuracy-bar-fg" id="accuracy-bar" style="width:0%"></div></div>
+    <div class="accuracy-pct" id="accuracy-pct">—</div>
+  </div>
+</div>
+
+<div id="controls">
+  <button class="filter-btn active" data-filter="all">All</button>
+  <button class="filter-btn" data-filter="correct">Correct</button>
+  <button class="filter-btn" data-filter="wrong">Wrong</button>
+  <button class="filter-btn" data-filter="unlabeled">Unlabeled</button>
+  <button class="filter-btn" data-filter="error">Error</button>
+  <input type="text" id="search-input" placeholder="Search name or value…">
+</div>
+
+<div id="results">
+  <div class="result-grid" id="result-grid"></div>
+  <div id="empty-state">No results match the current filter.</div>
+</div>
+
+<!-- ══════════ MODAL ══════════ -->
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-title">—</span>
+      <button class="modal-close" id="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <img class="modal-img" id="modal-img" src="" alt="" style="display:none">
+      <div class="modal-img-placeholder" id="modal-img-ph">No overlay image</div>
+      <div class="modal-section">
+        <div class="modal-section-title">Details</div>
+        <div class="meta-grid" id="modal-meta-grid"></div>
+      </div>
+      <div class="modal-section" id="modal-localize-section" style="display:none">
+        <div class="modal-section-title">Localization Selection</div>
+        <div class="attempts-grid" id="modal-localize-grid"></div>
+        <div id="modal-tophat-wrap" style="display:none;margin-top:10px">
+          <div style="font-size:.72rem;color:#64748b;margin-bottom:4px;letter-spacing:.04em">TOP-HAT PREPROCESSING (gray channel)</div>
+          <img id="modal-tophat-img" style="max-width:100%;border-radius:6px;border:1px solid #1e293b" alt="top-hat">
+        </div>
+      </div>
+      <div class="modal-section" id="modal-attempts-section" style="display:none">
+        <div class="modal-section-title">Search attempts (<span id="modal-attempt-count">0</span>)</div>
+        <div class="attempts-grid" id="modal-attempts-grid"></div>
+      </div>
+      <div class="modal-section" id="modal-combo-section" style="display:none">
+        <div class="modal-section-title">All combinations (<span id="modal-combo-count">0</span>)</div>
+        <div class="attempts-grid" id="modal-combo-grid"></div>
+      </div>
+    </div>
+    <iframe id="modal-pipeline-iframe"
+      style="display:none; width:100%; height:80vh; border:none; border-radius:0 0 14px 14px; flex-shrink:0;"
+    ></iframe>
+  </div>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  Constants
+// ─────────────────────────────────────────────
+const METHODS     = ['none', 'brightness', 'color', 'contour'];
+const CHANNELS    = ['gray', 'R', 'G', 'B'];
+const _THRESHOLDS = [0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50];
+const METHOD_COLOR = { none:'#64748b', brightness:'#f59e0b', color:'#6366f1', contour:'#34d399' };
+const CHANNEL_COLOR = { gray:'#94a3b8', R:'#f87171', G:'#4ade80', B:'#60a5fa' };
+
+// ─────────────────────────────────────────────
+//  State
+// ─────────────────────────────────────────────
+let samplesData = null, resultsData = null, cards = [], activeFilter = 'all';
+let rankedData  = [], sortCol = 'pct', sortDir = -1;
+
+// ─────────────────────────────────────────────
+//  File loading
+// ─────────────────────────────────────────────
+function readJSON(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = e => { try { res(JSON.parse(e.target.result)); } catch(err){ rej(err); } };
+    r.onerror = () => rej(new Error('read error'));
+    r.readAsText(file);
+  });
+}
+document.getElementById('file-samples').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const el = document.getElementById('status-samples');
+  try {
+    samplesData = await readJSON(f);
+    el.textContent = `Loaded: ${Object.keys(samplesData).length} entries`;
+    el.className = 'file-status ok';
+  } catch { el.textContent = 'Invalid JSON'; el.className = 'file-status err'; samplesData = null; }
+  maybeRender();
+});
+let _lastResultFile = null;
+
+async function loadResultFile(f) {
+  if (!f) return;
+  const el  = document.getElementById('status-results');
+  const btn = document.getElementById('reload-btn');
+  try {
+    resultsData = await readJSON(f);
+    const count = Object.keys(resultsData.results ?? resultsData).length;
+    const ts = resultsData.meta?.timestamp ?? '';
+    el.textContent = `Loaded: ${count} results${ts ? ' — ' + ts : ''}`;
+    el.className = 'file-status ok';
+    _lastResultFile = f;
+    btn.style.display = 'inline-block';
+  } catch {
+    el.textContent = 'Invalid JSON'; el.className = 'file-status err'; resultsData = null;
+  }
+  maybeRender();
+}
+
+document.getElementById('file-results').addEventListener('change', e => loadResultFile(e.target.files[0]));
+
+document.getElementById('reload-btn').addEventListener('click', () => loadResultFile(_lastResultFile));
+document.getElementById('reload-btn').addEventListener('mouseenter', function() {
+  this.style.borderColor = '#6366f1'; this.style.color = '#e2e8f0';
+});
+document.getElementById('reload-btn').addEventListener('mouseleave', function() {
+  this.style.borderColor = '#334155'; this.style.color = '#94a3b8';
+});
+function maybeRender() { if (resultsData) render(); }
+
+// ─────────────────────────────────────────────
+//  Helpers
+// ─────────────────────────────────────────────
+function heatBg(pct) {
+  if (pct == null) return '#0f1117';
+  const r = pct < 50 ? 255 : Math.round(255*(1-(pct-50)/50));
+  const g = pct > 50 ? 255 : Math.round(255*(pct/50));
+  return `rgba(${r},${g},40,0.22)`;
+}
+function heatFg(pct) {
+  if (pct == null) return '#475569';
+  return pct >= 60 ? '#34d399' : pct >= 35 ? '#f59e0b' : '#f87171';
+}
+function pctStr(pct) { return pct != null ? pct.toFixed(1)+'%' : '—'; }
+
+// ─────────────────────────────────────────────
+//  Main render
+// ─────────────────────────────────────────────
+function render() {
+  const rawResults = resultsData.results ?? resultsData;
+  const meta       = resultsData.meta ?? {};
+  const samples    = samplesData ?? {};
+
+  // Meta strip
+  const metaEl = document.getElementById('meta-info');
+  if (meta.timestamp || meta.backend || meta.threshold != null) {
+    metaEl.style.display = 'flex';
+    metaEl.innerHTML = [
+      meta.timestamp  ? `<span><strong>Run:</strong> ${meta.timestamp}</span>` : '',
+      meta.image_dir  ? `<span><strong>Images:</strong> ${meta.image_dir}</span>` : '',
+      meta.backend    ? `<span><strong>Backend:</strong> ${meta.backend}</span>` : '',
+      meta.threshold != null ? `<span><strong>Default threshold:</strong> ${meta.threshold}</span>` : '',
+    ].join('');
+  }
+
+  // Cards
+  cards = Object.entries(rawResults).map(([stem, r]) => {
+    const predicted   = r.predicted ?? null;
+    const groundTruth = samples[stem] ?? null;
+    const imgMeta     = r.meta ?? {};
+    let status = r.error ? 'error' : groundTruth === null ? 'unlabeled' : predicted === groundTruth ? 'correct' : 'wrong';
+    return { stem, predicted, groundTruth, overlayB64: r.overlay_b64 ?? null,
+             error: r.error ?? null, status, imgMeta,
+             attempts: r.attempts ?? [], allCombinations: r.all_combinations ?? [],
+             localizeSelection: r.localize_selection ?? [],
+             tophatB64: r.tophat_b64 ?? null,
+             stepsJson: r.steps_json ?? null };
+  });
+
+  const total = cards.length, correct = cards.filter(c=>c.status==='correct').length,
+        wrong = cards.filter(c=>c.status==='wrong').length,
+        unlabeled = cards.filter(c=>c.status==='unlabeled').length,
+        labeled = correct + wrong;
+  const accuracy = labeled > 0 ? correct/labeled*100 : null;
+
+  document.getElementById('stat-total').textContent     = total;
+  document.getElementById('stat-correct').textContent   = correct;
+  document.getElementById('stat-wrong').textContent     = wrong;
+  document.getElementById('stat-unlabeled').textContent = unlabeled;
+  document.getElementById('accuracy-bar').style.width   = accuracy != null ? accuracy+'%' : '0%';
+  document.getElementById('accuracy-pct').textContent   = accuracy != null
+    ? `${accuracy.toFixed(1)}%  (${correct} / ${labeled} labeled)` : 'No labeled samples loaded';
+
+  document.getElementById('stats').style.display   = 'flex';
+  document.getElementById('controls').style.display = 'flex';
+  document.getElementById('results').style.display  = 'block';
+
+  applyFilter();
+  renderComboPanel(rawResults, samples);
+}
+
+// ─────────────────────────────────────────────
+//  Combination panel
+// ─────────────────────────────────────────────
+function renderComboPanel(rawResults, samples) {
+  const panel = document.getElementById('combo-panel');
+  const hasCombo = Object.values(rawResults).some(r => r.all_combinations?.length);
+  if (!hasCombo) { panel.style.display = 'none'; return; }
+
+  // Build 2D matrix (method × channel, best threshold per combo)
+  const acc = {};
+  METHODS.forEach(m => { acc[m] = {}; CHANNELS.forEach(ch => { acc[m][ch] = {correct:0, labeled:0}; }); });
+
+  // Build 3D matrix (method × channel × threshold)
+  const accT = {};
+  METHODS.forEach(m => {
+    accT[m] = {};
+    CHANNELS.forEach(ch => {
+      accT[m][ch] = {};
+      _THRESHOLDS.forEach(t => { accT[m][ch][t] = {correct:0, labeled:0}; });
+    });
+  });
+
+  let hasThresholdData = false;
+
+  for (const [stem, r] of Object.entries(rawResults)) {
+    if (!r.all_combinations) continue;
+    const gt = samples[stem] ?? null;
+    if (gt === null) continue;
+    for (const c of r.all_combinations) {
+      const cell = acc[c.localize_method]?.[c.channel];
+      if (!cell) continue;
+      cell.labeled++;
+      if (c.number_str === gt) cell.correct++;
+
+      if (c.threshold_results?.length) {
+        hasThresholdData = true;
+        for (const tr of c.threshold_results) {
+          const tcell = accT[c.localize_method]?.[c.channel]?.[tr.threshold];
+          if (!tcell) continue;
+          tcell.labeled++;
+          if (tr.number_str === gt) tcell.correct++;
+        }
+      }
+    }
+  }
+
+  const labeled = Object.values(acc).flatMap(m => Object.values(m)).find(c => c.labeled > 0)?.labeled ?? 0;
+  document.getElementById('combo-subtitle').textContent =
+    labeled ? `${labeled} labeled images` : '';
+
+  // Flat ranked list
+  rankedData = [];
+  METHODS.forEach(m => CHANNELS.forEach(ch => {
+    const {correct, labeled} = acc[m][ch];
+    const pct = labeled > 0 ? correct/labeled*100 : null;
+    rankedData.push({m, ch, correct, labeled, pct});
+  }));
+
+  panel.style.display = 'block';  // must be visible before canvas measures clientWidth
+  renderHeatmap(acc);
+  renderSummaryBars(acc);
+  renderChart(rankedData);
+  renderRankedTable();
+  renderThresholdSection(accT, hasThresholdData);
+}
+
+function renderHeatmap(acc) {
+  const table = document.getElementById('combo-heatmap');
+  const head  = `<tr><th class="row-header">Method</th>${CHANNELS.map(ch=>`<th>${ch}</th>`).join('')}</tr>`;
+  const rows  = METHODS.map(m =>
+    `<tr><th class="row-header" style="color:${METHOD_COLOR[m]}">${m}</th>` +
+    CHANNELS.map(ch => {
+      const {correct, labeled} = acc[m][ch];
+      const pct = labeled > 0 ? correct/labeled*100 : null;
+      return `<td style="background:${heatBg(pct)};color:${heatFg(pct)}"
+                  title="${m} · ${ch}: ${pctStr(pct)} (${correct}/${labeled})">
+        <span class="cell-pct">${pctStr(pct)}</span>
+        <span class="cell-frac">${labeled ? correct+'/'+labeled : ''}</span>
+      </td>`;
+    }).join('') + `</tr>`
+  ).join('');
+  table.innerHTML = head + rows;
+}
+
+function renderSummaryBars(acc) {
+  // best accuracy per method (max over channels)
+  const methodEl = document.getElementById('method-summary-bars');
+  methodEl.innerHTML = METHODS.map(m => {
+    const vals = CHANNELS.map(ch => acc[m][ch]).filter(c=>c.labeled>0);
+    const best = vals.length ? Math.max(...vals.map(c=>c.correct/c.labeled*100)) : null;
+    return summaryBar(m, METHOD_COLOR[m], best);
+  }).join('');
+
+  // best accuracy per channel (max over methods)
+  const chanEl = document.getElementById('channel-summary-bars');
+  chanEl.innerHTML = CHANNELS.map(ch => {
+    const vals = METHODS.map(m => acc[m][ch]).filter(c=>c.labeled>0);
+    const best = vals.length ? Math.max(...vals.map(c=>c.correct/c.labeled*100)) : null;
+    return summaryBar(ch, CHANNEL_COLOR[ch], best);
+  }).join('');
+}
+
+function summaryBar(label, color, pct) {
+  const w = pct != null ? pct : 0;
+  return `<div class="msrow">
+    <div class="msrow-label" style="color:${color}">${label}</div>
+    <div class="msrow-bar-bg">
+      <div class="msrow-bar-fg" style="width:${w}%;background:${color}"></div>
+    </div>
+    <div class="msrow-pct" style="color:${heatFg(pct)}">${pctStr(pct)}</div>
+  </div>`;
+}
+
+function renderChart(data) {
+  const canvas = document.getElementById('combo-chart');
+  const sorted = [...data].sort((a,b)=>(b.pct??-1)-(a.pct??-1));
+  const DPR    = window.devicePixelRatio || 1;
+  const W      = canvas.parentElement.clientWidth || 800;
+  const ROW_H  = 20, PAD_T = 30, PAD_B = 20, PAD_L = 155, PAD_R = 55;
+  const H      = ROW_H * sorted.length + PAD_T + PAD_B;
+
+  canvas.width  = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.height = H + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(DPR, DPR);
+  ctx.clearRect(0, 0, W, H);
+
+  const barW = W - PAD_L - PAD_R;
+
+  // Grid lines at 0, 25, 50, 75, 100%
+  ctx.font = '10px system-ui';
+  [0,25,50,75,100].forEach(v => {
+    const x = PAD_L + barW * v/100;
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, PAD_T); ctx.lineTo(x, H-PAD_B); ctx.stroke();
+    ctx.fillStyle = '#475569';
+    ctx.textAlign = 'center';
+    ctx.fillText(v+'%', x, PAD_T - 8);
+  });
+
+  sorted.forEach((d, i) => {
+    const y   = PAD_T + i * ROW_H;
+    const mid = y + ROW_H/2;
+    const w   = d.pct != null ? barW * d.pct/100 : 0;
+    const col = METHOD_COLOR[d.m] ?? '#64748b';
+
+    // Background track
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    ctx.beginPath();
+    ctx.roundRect(PAD_L, y+2, barW, ROW_H-4, 3);
+    ctx.fill();
+
+    // Value bar
+    if (w > 0) {
+      ctx.fillStyle = col + 'cc';
+      ctx.beginPath();
+      ctx.roundRect(PAD_L, y+2, w, ROW_H-4, 3);
+      ctx.fill();
+    }
+
+    // Label
+    ctx.fillStyle = '#94a3b8';
+    ctx.textAlign = 'right';
+    ctx.font = '11px system-ui';
+    ctx.fillText(`${d.m} · ${d.ch}`, PAD_L - 6, mid + 4);
+
+    // Percentage
+    ctx.fillStyle = heatFg(d.pct);
+    ctx.textAlign = 'left';
+    ctx.font = '11px "ui-monospace", monospace';
+    ctx.fillText(pctStr(d.pct), PAD_L + w + 5, mid + 4);
+  });
+}
+
+function renderRankedTable() {
+  const sorted = [...rankedData].sort((a,b) => {
+    let va = a[sortCol], vb = b[sortCol];
+    if (sortCol === 'pct') { va = a.pct??-1; vb = b.pct??-1; }
+    if (sortCol === 'method') { va = a.m; vb = b.m; }
+    if (sortCol === 'channel') { va = a.ch; vb = b.ch; }
+    if (typeof va === 'string') return sortDir * va.localeCompare(vb);
+    return sortDir * (va - vb);
+  });
+
+  const maxPct = Math.max(...rankedData.filter(d=>d.pct!=null).map(d=>d.pct), 1);
+
+  document.getElementById('combo-ranked-body').innerHTML = sorted.map((d, i) => {
+    const barW = d.pct != null ? (d.pct/maxPct*100) : 0;
+    const col  = METHOD_COLOR[d.m] ?? '#64748b';
+    return `<tr>
+      <td>${i+1}</td>
+      <td><span class="method-dot" style="background:${col}"></span>${d.m}</td>
+      <td style="color:${CHANNEL_COLOR[d.ch]}">${d.ch}</td>
+      <td>${d.correct}</td>
+      <td>${d.labeled}</td>
+      <td style="color:${heatFg(d.pct)};font-weight:700;font-family:monospace">${pctStr(d.pct)}</td>
+      <td><div class="bar-cell">
+        <div class="bar-cell-bg"><div class="bar-cell-fg" style="width:${barW}%;background:${col}"></div></div>
+      </div></td>
+    </tr>`;
+  }).join('');
+
+  // Sort indicators
+  document.querySelectorAll('table.ranked th[data-col]').forEach(th => {
+    th.classList.remove('sort-asc','sort-desc');
+    if (th.dataset.col === sortCol) th.classList.add(sortDir===1?'sort-asc':'sort-desc');
+  });
+}
+
+document.querySelectorAll('table.ranked th[data-col]').forEach(th => {
+  th.addEventListener('click', () => {
+    if (sortCol === th.dataset.col) sortDir *= -1;
+    else { sortCol = th.dataset.col; sortDir = -1; }
+    renderRankedTable();
+  });
+});
+
+// ─────────────────────────────────────────────
+//  Threshold analysis
+// ─────────────────────────────────────────────
+let _accT = null;
+let _activeThreshMethod = METHODS[0];
+
+function renderThresholdSection(accT, hasData) {
+  const sec = document.getElementById('thresh-section');
+  if (!hasData) { sec.style.display = 'none'; return; }
+  _accT = accT;
+  sec.style.display = 'block';
+
+  // Build method tabs
+  const tabs = document.getElementById('thresh-tabs');
+  tabs.innerHTML = METHODS.map(m =>
+    `<button class="thresh-tab${m===_activeThreshMethod?' active':''}"
+       style="${m===_activeThreshMethod?'background:'+METHOD_COLOR[m]:'color:'+METHOD_COLOR[m]+';border-color:'+METHOD_COLOR[m]}"
+       data-method="${m}">${m}</button>`
+  ).join('');
+  tabs.querySelectorAll('.thresh-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _activeThreshMethod = btn.dataset.method;
+      tabs.querySelectorAll('.thresh-tab').forEach(b => {
+        b.classList.remove('active');
+        b.style.background = '';
+        b.style.color  = METHOD_COLOR[b.dataset.method];
+        b.style.border = '';
+        b.style.borderColor = METHOD_COLOR[b.dataset.method];
+      });
+      btn.classList.add('active');
+      btn.style.background   = METHOD_COLOR[_activeThreshMethod];
+      btn.style.color        = '#fff';
+      btn.style.borderColor  = 'transparent';
+      renderThresholdHeatmap(_activeThreshMethod);
+      renderThresholdChart(_activeThreshMethod);
+    });
+  });
+
+  renderThresholdHeatmap(_activeThreshMethod);
+  renderThresholdChart(_activeThreshMethod);
+}
+
+function renderThresholdHeatmap(method) {
+  const table = document.getElementById('thresh-heatmap');
+  const head  = `<tr><th class="row-header">Threshold</th>${CHANNELS.map(ch=>`<th style="color:${CHANNEL_COLOR[ch]}">${ch}</th>`).join('')}</tr>`;
+  const rows  = _THRESHOLDS.map(t => {
+    const tKey = t.toFixed(2);
+    return `<tr><th class="row-header">${tKey}</th>` +
+      CHANNELS.map(ch => {
+        const cell   = _accT[method]?.[ch]?.[t] ?? {correct:0, labeled:0};
+        const pct    = cell.labeled > 0 ? cell.correct/cell.labeled*100 : null;
+        return `<td style="background:${heatBg(pct)};color:${heatFg(pct)}"
+                    title="${method} · ${ch} · t=${tKey}: ${pctStr(pct)} (${cell.correct}/${cell.labeled})">
+          <span class="cell-pct">${pctStr(pct)}</span>
+          <span class="cell-frac">${cell.labeled ? cell.correct+'/'+cell.labeled : ''}</span>
+        </td>`;
+      }).join('') + `</tr>`;
+  }).join('');
+  table.innerHTML = head + rows;
+}
+
+function renderThresholdChart(method) {
+  const canvas = document.getElementById('thresh-chart');
+  const DPR    = window.devicePixelRatio || 1;
+  const W      = canvas.parentElement.clientWidth || 400;
+  const PAD_L  = 42, PAD_R = 20, PAD_T = 28, PAD_B = 36;
+  const H      = 220;
+
+  canvas.width  = W * DPR;
+  canvas.height = H * DPR;
+  canvas.style.height = H + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(DPR, DPR);
+  ctx.clearRect(0, 0, W, H);
+
+  const plotW = W - PAD_L - PAD_R;
+  const plotH = H - PAD_T - PAD_B;
+
+  // Y grid lines + labels (0, 25, 50, 75, 100)
+  ctx.font = '10px system-ui';
+  [0, 25, 50, 75, 100].forEach(v => {
+    const y = PAD_T + plotH * (1 - v/100);
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(W-PAD_R, y); ctx.stroke();
+    ctx.fillStyle = '#475569';
+    ctx.textAlign = 'right';
+    ctx.fillText(v+'%', PAD_L - 5, y + 4);
+  });
+
+  // X axis labels (threshold values)
+  _THRESHOLDS.forEach((t, i) => {
+    const x = PAD_L + plotW * i / (_THRESHOLDS.length - 1);
+    ctx.fillStyle = '#475569';
+    ctx.textAlign = 'center';
+    ctx.fillText(t.toFixed(2), x, H - PAD_B + 14);
+  });
+
+  // X axis title
+  ctx.fillStyle = '#334155';
+  ctx.textAlign = 'center';
+  ctx.font = '10px system-ui';
+  ctx.fillText('threshold', PAD_L + plotW/2, H - 4);
+
+  // One line per channel
+  CHANNELS.forEach(ch => {
+    const col = CHANNEL_COLOR[ch];
+    const points = _THRESHOLDS.map((t, i) => {
+      const cell = _accT[method]?.[ch]?.[t] ?? {correct:0, labeled:0};
+      const pct  = cell.labeled > 0 ? cell.correct/cell.labeled*100 : null;
+      const x    = PAD_L + plotW * i / (_THRESHOLDS.length - 1);
+      const y    = pct != null ? PAD_T + plotH * (1 - pct/100) : null;
+      return {x, y, pct};
+    });
+
+    // Line
+    ctx.strokeStyle = col;
+    ctx.lineWidth   = 2;
+    ctx.lineJoin    = 'round';
+    ctx.beginPath();
+    let started = false;
+    points.forEach(p => {
+      if (p.y == null) { started = false; return; }
+      if (!started) { ctx.moveTo(p.x, p.y); started = true; }
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.stroke();
+
+    // Dots + value labels
+    points.forEach(p => {
+      if (p.y == null) return;
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3.5, 0, Math.PI*2);
+      ctx.fill();
+    });
+  });
+
+  // Legend (top-right)
+  const legX = W - PAD_R - 10;
+  const legY = PAD_T + 4;
+  CHANNELS.forEach((ch, i) => {
+    const y = legY + i * 16;
+    ctx.fillStyle = CHANNEL_COLOR[ch];
+    ctx.fillRect(legX - 30, y - 5, 14, 3);
+    ctx.beginPath(); ctx.arc(legX - 23, y - 3.5, 3, 0, Math.PI*2); ctx.fill();
+    ctx.font = '10px system-ui';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(ch, legX - 12, y);
+  });
+}
+
+// ─────────────────────────────────────────────
+//  Image grid
+// ─────────────────────────────────────────────
+function applyFilter() {
+  const search = document.getElementById('search-input').value.toLowerCase();
+  const grid   = document.getElementById('result-grid');
+  grid.innerHTML = '';
+  const filtered = cards.filter(c => {
+    if (activeFilter !== 'all' && c.status !== activeFilter) return false;
+    if (search) {
+      const hay = `${c.stem} ${c.predicted??''} ${c.groundTruth??''}`.toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
+  document.getElementById('empty-state').style.display = filtered.length===0 ? 'block':'none';
+  for (const c of filtered) {
+    const card = document.createElement('div');
+    card.className = `result-card ${c.status}`;
+    card.addEventListener('click', () => openModal(c));
+    const imgHtml = c.overlayB64
+      ? `<img class="card-img" src="data:image/png;base64,${c.overlayB64}" loading="lazy" alt="${c.stem}">`
+      : `<div class="card-img-placeholder">No overlay</div>`;
+    const badgeLabel = {correct:'Correct',wrong:'Wrong',unlabeled:'Unlabeled',error:'Error'}[c.status];
+    const predCls = c.groundTruth===null?'neutral': c.status==='correct'?'correct':'wrong';
+    const predVal = c.error
+      ? `<span class="val neutral" title="${c.error}">error</span>`
+      : `<span class="val ${predCls}">${c.predicted??'—'}</span>`;
+    card.innerHTML = `${imgHtml}
+      <div class="card-body">
+        <div class="card-name" title="${c.stem}">${c.stem}</div>
+        <div class="card-row"><span class="field">Ground truth</span><span class="val neutral">${c.groundTruth??'—'}</span></div>
+        <div class="card-row"><span class="field">Predicted</span>${predVal}</div>
+        <div class="card-row" style="margin-top:.5rem"><span></span><span class="badge ${c.status}">${badgeLabel}</span></div>
+      </div>`;
+    grid.appendChild(card);
+  }
+}
+
+// ─────────────────────────────────────────────
+//  Modal
+// ─────────────────────────────────────────────
+function openModal(c) {
+  document.getElementById('modal-title').textContent = c.stem;
+
+  const iframe  = document.getElementById('modal-pipeline-iframe');
+  const bodyEl  = document.getElementById('modal-body');
+
+  if (c.stepsJson) {
+    bodyEl.style.display  = 'none';
+    iframe.src            = `pipeline_viewer.html?json=${encodeURIComponent(c.stepsJson)}`;
+    iframe.style.display  = 'block';
+    document.getElementById('modal-backdrop').classList.add('open');
+    return;
+  }
+
+  iframe.style.display = 'none';
+  iframe.src           = '';
+  bodyEl.style.display = 'block';
+
+  const imgEl = document.getElementById('modal-img');
+  const ph    = document.getElementById('modal-img-ph');
+  if (c.overlayB64) { imgEl.src=`data:image/png;base64,${c.overlayB64}`; imgEl.style.display='block'; ph.style.display='none'; }
+  else               { imgEl.style.display='none'; ph.style.display='flex'; }
+
+  const m = c.imgMeta, predCls = c.status==='correct'?'correct':c.status==='wrong'?'wrong':'neutral';
+  const items = [
+    {k:'Status',         v:c.status.charAt(0).toUpperCase()+c.status.slice(1), cls:predCls},
+    {k:'Ground Truth',   v:c.groundTruth??'—', cls:'neutral'},
+    {k:'Predicted',      v:c.predicted??'—',   cls:predCls},
+    {k:'Localize Method',v:m.localize_method??'—', cls:'neutral'},
+    {k:'Threshold Used', v:m.threshold!=null?m.threshold:'—', cls:'neutral'},
+    {k:'Channel Used',   v:m.channel??'—', cls:'neutral'},
+  ];
+  if (c.error) items.push({k:'Error',v:c.error,cls:'wrong'});
+  document.getElementById('modal-meta-grid').innerHTML = items.map(i=>
+    `<div class="meta-item"><div class="mk">${i.k}</div><div class="mv ${i.cls}">${i.v}</div></div>`
+  ).join('');
+
+  // Localization selection
+  const locSec  = document.getElementById('modal-localize-section');
+  const locGrid = document.getElementById('modal-localize-grid');
+  const locSel  = c.localizeSelection ?? [];
+  if (locSel.length) {
+    locSec.style.display = 'block';
+    locGrid.innerHTML = locSel.map(lc => {
+      const col     = METHOD_COLOR[lc.method] ?? '#64748b';
+      const chosen  = lc.chosen;
+      const border  = chosen ? col : '';
+      const imgTag  = lc.debug_b64
+        ? `<img src="data:image/png;base64,${lc.debug_b64}" loading="lazy" alt="">`
+        : `<div style="aspect-ratio:4/3;background:#000;display:flex;align-items:center;justify-content:center;color:#334155;font-size:.7rem">no image</div>`;
+      const chosenTag = chosen ? `<span class="tag" style="background:${col}22;color:${col}">chosen</span>` : '';
+      const foundTag  = !lc.found ? `<span class="tag" style="background:#2d0a0a;color:#f87171">not found</span>` : '';
+      return `<div class="attempt-card" style="${border?'border-color:'+border:''}">
+        ${imgTag}
+        <div class="attempt-info"><div class="attempt-label">
+          <strong style="color:${col}">${lc.method}</strong>${chosenTag}${foundTag}<br>
+          probe: <span style="font-family:monospace">${lc.probe_str || '—'}</span><br>
+          coverage: ${(lc.coverage*100).toFixed(0)}%
+        </div></div></div>`;
+    }).join('');
+  } else {
+    locSec.style.display = 'none';
+  }
+
+  // Top-hat preview
+  const thWrap = document.getElementById('modal-tophat-wrap');
+  const thImg  = document.getElementById('modal-tophat-img');
+  if (c.tophatB64) {
+    thImg.src = `data:image/png;base64,${c.tophatB64}`;
+    thWrap.style.display = 'block';
+  } else {
+    thWrap.style.display = 'none';
+  }
+
+  renderAttemptGrid('modal-attempts-section','modal-attempt-count','modal-attempts-grid',
+    c.attempts, a => {
+      const wKey = `${m.localize_method}|${m.threshold}|${m.channel}`;
+      const isWin = `${a.localize_method}|${a.threshold}|${a.channel}` === wKey && a.number_str===c.predicted;
+      return {extra: isWin?`<span class="tag winner">winner</span>`:'', border: isWin?'#6366f1':''};
+    });
+
+  renderAttemptGrid('modal-combo-section','modal-combo-count','modal-combo-grid',
+    c.allCombinations, a => {
+      const isOk = c.groundTruth!==null && a.number_str===c.groundTruth;
+      return {extra: isOk?`<span class="tag correct">correct</span>`:'', border: isOk?'#34d399':''};
+    });
+
+  document.getElementById('modal-backdrop').classList.add('open');
+}
+
+function renderAttemptGrid(sectionId, countId, gridId, items, decorFn) {
+  const sec = document.getElementById(sectionId);
+  if (!items?.length) { sec.style.display='none'; return; }
+  sec.style.display='block';
+  document.getElementById(countId).textContent = items.length;
+  document.getElementById(gridId).innerHTML = items.map(a => {
+    const {extra, border} = decorFn(a);
+    const style = border ? `style="border-color:${border}"` : '';
+    const img   = a.overlay_b64
+      ? `<img src="data:image/png;base64,${a.overlay_b64}" loading="lazy" alt="">`
+      : `<div style="aspect-ratio:4/3;background:#000;display:flex;align-items:center;justify-content:center;color:#334155;font-size:.7rem">no image</div>`;
+    return `<div class="attempt-card" ${style}>${img}
+      <div class="attempt-info"><div class="attempt-label">
+        <strong>${a.number_str}</strong>${extra}<br>
+        t=${a.threshold} · ${a.channel}<br>${a.localize_method}
+      </div></div></div>`;
+  }).join('');
+}
+
+function closeModal() {
+  document.getElementById('modal-backdrop').classList.remove('open');
+  const iframe = document.getElementById('modal-pipeline-iframe');
+  iframe.src = '';
+  iframe.style.display = 'none';
+  document.getElementById('modal-body').style.display = 'block';
+}
+document.getElementById('modal-close').addEventListener('click', closeModal);
+document.getElementById('modal-backdrop').addEventListener('click', e => { if(e.target===document.getElementById('modal-backdrop')) closeModal(); });
+document.addEventListener('keydown', e => { if(e.key==='Escape') closeModal(); });
+
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    activeFilter = btn.dataset.filter;
+    applyFilter();
+  });
+});
+document.getElementById('search-input').addEventListener('input', applyFilter);
+window.addEventListener('resize', () => {
+  if (rankedData.length) renderChart(rankedData);
+  if (_accT) { renderThresholdChart(_activeThreshMethod); }
+});
+
+// ─────────────────────────────────────────────
+//  Auto-load defaults on page load
+// ─────────────────────────────────────────────
+const DEFAULT_SAMPLES = '../data/testing/samples.json';
+const DEFAULT_RESULTS = '../data/testing/result.json';
+
+async function autoLoad() {
+  const [samplesRes, resultsRes] = await Promise.allSettled([
+    fetch(DEFAULT_SAMPLES),
+    fetch(DEFAULT_RESULTS),
+  ]);
+
+  if (samplesRes.status === 'fulfilled' && samplesRes.value.ok) {
+    try {
+      samplesData = await samplesRes.value.json();
+      const el = document.getElementById('status-samples');
+      el.textContent = `Loaded: ${Object.keys(samplesData).length} entries`;
+      el.className = 'file-status ok';
+    } catch { samplesData = null; }
+  }
+
+  if (resultsRes.status === 'fulfilled' && resultsRes.value.ok) {
+    try {
+      resultsData = await resultsRes.value.json();
+      const count = Object.keys(resultsData.results ?? resultsData).length;
+      const ts = resultsData.meta?.timestamp ?? '';
+      const el = document.getElementById('status-results');
+      el.textContent = `Loaded: ${count} results${ts ? ' — ' + ts : ''}`;
+      el.className = 'file-status ok';
+      document.getElementById('reload-btn').style.display = 'inline-block';
+      document.getElementById('reload-btn').addEventListener('click', autoLoad);
+    } catch { resultsData = null; }
+  }
+
+  maybeRender();
+}
+
+document.addEventListener('DOMContentLoaded', autoLoad);
+</script>
+</body>
+</html>
