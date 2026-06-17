@@ -57,16 +57,26 @@ def find_digit_boxes(
 def filter_components(
     stats: list,
     image_height: int,
+    image_width: int = 0,
     min_area: int = 30,
     colon_aspect_min: float = 2.0,
     colon_area_max: int = 200,
+    max_area_ratio: float = 0.15,
 ) -> list:
-    """Entfernt Rausch-Blobs und Doppelpunkt-Punkte anhand von Fläche und Seitenverhältnis."""
+    """Entfernt Rausch-Blobs, Doppelpunkt-Punkte und Hintergrund-Outlier.
+
+    Jede abgelehnte Komponente erhält ein 'rejection_reason'-Feld für die Visualisierung.
+    """
+    max_area = max_area_ratio * image_height * image_width if image_width > 0 else float("inf")
+
     kept = []
     for s in stats:
         if s["area"] < min_area:
-            continue
-        if s["aspect_ratio"] > colon_aspect_min and s["area"] < colon_area_max:
-            continue
-        kept.append(s)
+            s["rejection_reason"] = f"noise: area {s['area']} < {min_area}"
+        elif s["aspect_ratio"] > colon_aspect_min and s["area"] < colon_area_max:
+            s["rejection_reason"] = f"colon/dot: h/w={s['aspect_ratio']:.1f}>{colon_aspect_min}, area={s['area']}<{colon_area_max}"
+        elif s["area"] > max_area:
+            s["rejection_reason"] = f"background: area {s['area']} > {max_area:.0f}px ({max_area_ratio:.0%} of image)"
+        else:
+            kept.append(s)
     return kept

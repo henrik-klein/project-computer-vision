@@ -355,7 +355,7 @@
       <span class="modal-title" id="modal-title">—</span>
       <button class="modal-close" id="modal-close">✕</button>
     </div>
-    <div class="modal-body">
+    <div class="modal-body" id="modal-body">
       <img class="modal-img" id="modal-img" src="" alt="" style="display:none">
       <div class="modal-img-placeholder" id="modal-img-ph">No overlay image</div>
       <div class="modal-section">
@@ -943,8 +943,8 @@ function applyFilter() {
 function openModal(c) {
   document.getElementById('modal-title').textContent = c.stem;
 
-  const iframe  = document.getElementById('modal-pipeline-iframe');
-  const bodyEl  = document.getElementById('modal-body');
+  const iframe = document.getElementById('modal-pipeline-iframe');
+  const bodyEl = document.getElementById('modal-body');
 
   if (c.stepsJson) {
     bodyEl.style.display  = 'none';
@@ -1052,7 +1052,7 @@ function renderAttemptGrid(sectionId, countId, gridId, items, decorFn) {
 function closeModal() {
   document.getElementById('modal-backdrop').classList.remove('open');
   const iframe = document.getElementById('modal-pipeline-iframe');
-  iframe.src = '';
+  iframe.src           = '';
   iframe.style.display = 'none';
   document.getElementById('modal-body').style.display = 'block';
 }
@@ -1077,8 +1077,8 @@ window.addEventListener('resize', () => {
 // ─────────────────────────────────────────────
 //  Auto-load defaults on page load
 // ─────────────────────────────────────────────
-const DEFAULT_SAMPLES = '../data/testing/samples.json';
-const DEFAULT_RESULTS = '../data/testing/result.json';
+const DEFAULT_SAMPLES = 'data/testing/samples.json';
+const DEFAULT_RESULTS = 'data/testing/result.json';
 
 async function autoLoad() {
   const [samplesRes, resultsRes] = await Promise.allSettled([

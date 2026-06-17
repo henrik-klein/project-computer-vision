@@ -8,7 +8,6 @@ Options:
     -b / --backend         python (default)
     -t / --threshold       Segment threshold 0.0-1.0 (default: 0.3)
     -w / --workers         Image-level worker threads (default: cpu count)
-    --all-combinations     Try every localize method × channel and store results
 
 The result JSON embeds each overlay image as base64 so report.html is
 self-contained and needs no HTTP server.
@@ -27,7 +26,7 @@ import cv2
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "python"))
 
-from segreader import run_pipeline, run_all_combinations
+from segreader import run_pipeline
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff"}
 
@@ -42,91 +41,39 @@ def image_to_b64(img) -> str:
 
 
 def _process_image(path: str, stem: str, args) -> tuple[str, dict, str]:
-    """Process one image: pipeline + optional all-combinations sweep.
-
-    Returns (stem, entry_dict, log_line).
-    """
-    number_str, annotated, details = run_pipeline(
+    """Process one image and return (stem, entry_dict, log_line)."""
+    number_str, annotated = run_pipeline(
         path,
         backend=args.backend,
-        localize=args.localize,
         segment_threshold=args.threshold,
-        min_digit_width_ratio=args.min_digit_width,
-        return_meta=True,
+        localize=not args.no_localize,
     )
-    meta = details["meta"]
-    attempts_serialized = [
-        {
-            "localize_method": a["localize_method"],
-            "threshold":       a["threshold"],
-            "channel":         a["channel"],
-            "number_str":      a["number_str"],
-            "overlay_b64":     image_to_b64(a["annotated"]),
-        }
-        for a in details["attempts"]
-    ]
-    localize_sel_serialized = [
-        {
-            "method":    c["method"],
-            "found":     c["found"],
-            "coverage":  c["coverage"],
-            "probe_str": c["probe_str"],
-            "chosen":    c["chosen"],
-            "debug_b64": image_to_b64(c["debug"]),
-        }
-        for c in details.get("localize_selection", [])
-    ]
-    tophat_viz = details.get("tophat_viz")
-    # Generate steps.json via main.py --no-save --processed
+
+    # Generate steps.json via main.py --no-save --processed.
+    # main.py exits with code 2 when no digits are decoded ("?"), but _save_processed
+    # already wrote steps.json before that exit, so check the file unconditionally.
     _script_dir = os.path.dirname(os.path.abspath(__file__))
     _main_script = os.path.join(_script_dir, "main.py")
     steps_json_path = None
+    cmd = [sys.executable, _main_script, path, "--no-save", "--processed",
+           "--threshold", str(args.threshold), "--backend", args.backend]
+    if args.no_localize:
+        cmd.append("--no-localize")
     try:
-        subprocess.run(
-            [sys.executable, _main_script, path, "--no-save", "--processed"],
-            check=True, capture_output=True, cwd=_script_dir,
-        )
-        _candidate = os.path.join("data", "processed", stem, "steps.json")
-        if os.path.isfile(os.path.join(_script_dir, _candidate)):
-            steps_json_path = _candidate
+        subprocess.run(cmd, capture_output=True, cwd=_script_dir)
     except Exception:
         pass
+    _candidate = os.path.join("data", "processed", stem, "steps.json")
+    if os.path.isfile(os.path.join(_script_dir, _candidate)):
+        steps_json_path = _candidate
 
     entry = {
-        "predicted":          number_str,
-        "overlay_b64":        image_to_b64(annotated),
-        "meta":               meta,
-        "attempts":           attempts_serialized,
-        "localize_selection": localize_sel_serialized,
-        "tophat_b64":         image_to_b64(tophat_viz) if tophat_viz is not None else None,
-        "steps_json":         steps_json_path,
+        "predicted":  number_str,
+        "overlay_b64": image_to_b64(annotated),
+        "steps_json":  steps_json_path,
     }
 
-    if args.all_combinations:
-        combos = run_all_combinations(
-            path,
-            backend=args.backend,
-            segment_threshold=args.threshold,
-            min_digit_width_ratio=args.min_digit_width,
-            combo_workers=args.combo_workers,
-        )
-        entry["all_combinations"] = [
-            {
-                "localize_method":   c["localize_method"],
-                "channel":           c["channel"],
-                "threshold":         c["threshold"],
-                "number_str":        c["number_str"],
-                "overlay_b64":       image_to_b64(c["annotated"]),
-                "threshold_results": c["threshold_results"],
-            }
-            for c in combos
-        ]
-
-    log = (
-        f"→ {number_str!r}  "
-        f"(method={meta['localize_method']} t={meta['threshold']} "
-        f"ch={meta['channel']} attempts={len(attempts_serialized)})"
-    )
+    log = f"→ {number_str!r}"
     return stem, entry, log
 
 
@@ -137,24 +84,17 @@ def main() -> None:
     parser.add_argument("image_dir", nargs="?", default=os.path.join("data", "testing", "images"))
     parser.add_argument("-o", "--output", default=os.path.join("data", "testing", "result.json"))
     parser.add_argument("-b", "--backend", default="python")
-    parser.add_argument("-t", "--threshold", type=float, default=0.3)
-    parser.add_argument("--min-digit-width", type=float, default=0.08,
-                        help="Mindestbreite einer Ziffern-Box relativ zur Bildhöhe (Standard: 0.08)")
-    parser.add_argument("-l", "--localize", action="store_true",
-                        help="Display-Region vor der Dekodierung automatisch lokalisieren")
-    parser.add_argument("--localize-method", default="auto",
-                        choices=["brightness", "color", "contour", "auto"],
-                        help="Lokalisierungsstrategie: auto (Standard), brightness, color, contour")
-    parser.add_argument("--all-combinations", action="store_true",
-                        help="Alle Lokalisierungsmethoden × Kanäle evaluieren und im JSON speichern")
+    parser.add_argument("-t", "--threshold", type=float, default=0.40)
     parser.add_argument(
         "-w", "--workers", type=int, default=None,
         help=f"Anzahl paralleler Bild-Worker (Standard: CPU-Anzahl = {cpu})",
     )
+    parser.add_argument(
+        "--no-localize", action="store_true",
+        help="Skip display localization — process full image directly",
+    )
     args = parser.parse_args()
 
-    # Number of threads to use inside run_all_combinations per image.
-    # With N image workers each spawning combo_workers threads the total is bounded.
     if not os.path.isdir(args.image_dir):
         print(f"Directory not found: {args.image_dir}", file=sys.stderr)
         sys.exit(1)
@@ -169,11 +109,7 @@ def main() -> None:
         sys.exit(1)
 
     n_workers = min(args.workers or cpu, len(image_files))
-    # Keep total thread count ≤ cpu * 4 so we don't flood the OS scheduler.
-    args.combo_workers = max(1, (cpu * 4) // n_workers)
-
-    combo_info = f", {args.combo_workers} combo-threads/image" if args.all_combinations else ""
-    print(f"Processing {len(image_files)} image(s) with {n_workers} worker(s){combo_info} …\n")
+    print(f"Processing {len(image_files)} image(s) with {n_workers} worker(s) …\n")
 
     results: dict[str, dict] = {}
     errors = 0

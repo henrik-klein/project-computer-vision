@@ -37,7 +37,13 @@ class visualisation:
     def filter_result(labels: np.ndarray, stats: list, kept_set: set) -> np.ndarray:
         vis = np.zeros((*labels.shape, 3), dtype=np.uint8)
         for s in stats:
-            vis[labels == s["label"]] = (0, 200, 60) if s["label"] in kept_set else (60, 0, 200)
+            if s["label"] in kept_set:
+                color = (0, 200, 60)       # green  — kept
+            elif s.get("rejection_reason", "").startswith("background"):
+                color = (0, 140, 255)      # orange — background outlier
+            else:
+                color = (60, 0, 200)       # purple — noise / colon
+            vis[labels == s["label"]] = color
         return vis
 
     @staticmethod
@@ -125,8 +131,4 @@ class visualisation:
 
     @staticmethod
     def rejection_reason(s: dict) -> str:
-        if s["area"] < 30:
-            return f"area {s['area']} < 30 (noise)"
-        if s["aspect_ratio"] > 2.0 and s["area"] < 200:
-            return f"colon/dot: h/w={s['aspect_ratio']:.1f}>2.0, area={s['area']}<200"
-        return "unknown"
+        return s.get("rejection_reason", "unknown")

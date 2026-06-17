@@ -77,8 +77,8 @@ def main() -> None:
                         help="Pfad zum Eingabebild")
     parser.add_argument("-b", "--backend", default="python", help="Verarbeitungs-Backend")
     parser.add_argument("-o", "--output", default=None, help="Pfad für annotiertes Ausgabebild")
-    parser.add_argument("-t", "--threshold", type=float, default=0.3,
-                        help="Segment-Abtastschwelle (0.0-1.0, Standard: 0.3)")
+    parser.add_argument("-t", "--threshold", type=float, default=0.15,
+                        help="Segment-Abtastschwelle (0.0-1.0, Standard: 0.15)")
     parser.add_argument("-n", "--no-save", action="store_true",
                         help="Annotiertes Bild nicht speichern")
     parser.add_argument("-v", "--verbose", action="store_true",
@@ -86,6 +86,8 @@ def main() -> None:
     parser.add_argument("-p", "--processed", action="store_true", default=False,
                         help="Jeden Verarbeitungsschritt als PNG + steps.json nach "
                              "data/processed/<name>/ speichern")
+    parser.add_argument("--no-localize", action="store_true",
+                        help="Lokalisierung überspringen — ganzes Bild verwenden")
     args = parser.parse_args()
 
     if not os.path.isfile(args.image_path):
@@ -98,6 +100,7 @@ def main() -> None:
             backend=args.backend,
             segment_threshold=args.threshold,
             return_steps=args.processed,
+            localize=not args.no_localize,
         )
     except ValueError as e:
         print(f"Fehler: {e}", file=sys.stderr)

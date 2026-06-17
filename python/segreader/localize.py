@@ -61,8 +61,8 @@ def _crop_from_mask(
     min_area_ratio: float,
     pad_px: int,
     label: str,
-) -> tuple[np.ndarray | None, np.ndarray, bool]:
-    """Shared logic: close mask → bounding box → crop."""
+) -> tuple[np.ndarray | None, np.ndarray, bool, tuple[int, int]]:
+    """Shared logic: close mask → bounding box → crop. Returns (crop, debug, found, (ox, oy))."""
     h, w = img_bgr.shape[:2]
     k = cv2.getStructuringElement(cv2.MORPH_RECT, (close_ksize, close_ksize))
     closed = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k)
@@ -71,7 +71,7 @@ def _crop_from_mask(
     debug = img_bgr.copy()
 
     if pts is None or cv2.countNonZero(closed) < min_area_ratio * h * w:
-        return None, debug, False
+        return None, debug, False, (0, 0)
 
     bx, by, bw, bh = cv2.boundingRect(pts)
     bx = max(0, bx - pad_px)
@@ -81,7 +81,7 @@ def _crop_from_mask(
 
     crop = img_bgr[by:by + bh, bx:bx + bw].copy()
     _draw_box(debug, bx, by, bw, bh, (0, 200, 255), label)
-    return crop, debug, True
+    return crop, debug, True, (bx, by)
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +96,7 @@ def _find_by_brightness(
     close_ksize: int | None = None,
     min_area_ratio: float = 0.005,
     pad_px: int = 10,
-) -> tuple[np.ndarray | None, np.ndarray, bool]:
+) -> tuple[np.ndarray | None, np.ndarray, bool, tuple[int, int]]:
     if close_ksize is None:
         close_ksize = _adaptive_close_ksize(img_bgr)
 
@@ -130,7 +130,7 @@ def _find_by_color(
     close_ksize: int | None = None,
     min_area_ratio: float = 0.005,
     pad_px: int = 10,
-) -> tuple[np.ndarray | None, np.ndarray, bool]:
+) -> tuple[np.ndarray | None, np.ndarray, bool, tuple[int, int]]:
     if color_ranges is None:
         color_ranges = _FULL_SPECTRUM_RANGES
     if close_ksize is None:
@@ -159,7 +159,8 @@ def _find_by_contour(
     canny_low: int = 50,
     canny_high: int = 150,
     dilate_iters: int = 2,
-) -> tuple[np.ndarray | None, np.ndarray, bool]:
+    pad_px: int = 20,
+) -> tuple[np.ndarray | None, np.ndarray, bool, tuple[int, int]]:
     h, w = img_bgr.shape[:2]
     min_area = min_area_ratio * h * w
 
@@ -183,24 +184,35 @@ def _find_by_contour(
         if len(approx) == 4:
             pts = _order_quad(approx)
             bx, by, bw, bh = cv2.boundingRect(approx)
-            dst = np.array([[0, 0], [bw, 0], [bw, bh], [0, bh]], dtype=np.float32)
+            rx = max(0, bx - pad_px)
+            ry = max(0, by - pad_px)
+            rw = min(w - rx, bw + 2 * pad_px)
+            rh = min(h - ry, bh + 2 * pad_px)
+            dx, dy = bx - rx, by - ry
+            dst = np.array(
+                [[dx, dy], [dx + bw, dy], [dx + bw, dy + bh], [dx, dy + bh]],
+                dtype=np.float32,
+            )
             M = cv2.getPerspectiveTransform(pts, dst)
-            crop = cv2.warpPerspective(img_bgr, M, (bw, bh))
+            crop = cv2.warpPerspective(img_bgr, M, (rw, rh))
             cv2.drawContours(debug, [approx], -1, (0, 255, 0), 2)
             for pt in approx.reshape(-1, 2):
                 cv2.circle(debug, tuple(pt.astype(int)), 6, (0, 0, 255), -1)
-            cv2.putText(debug, "Display (quad)", (bx, max(by - 8, 14)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2, cv2.LINE_AA)
-            return crop, debug, True
+            _draw_box(debug, rx, ry, rw, rh, (0, 200, 255), "Display (quad+pad)")
+            return crop, debug, True, (rx, ry)
 
     if candidates and cv2.contourArea(candidates[0]) >= min_area:
         cnt = candidates[0]
         bx, by, bw, bh = cv2.boundingRect(cnt)
+        bx = max(0, bx - pad_px)
+        by = max(0, by - pad_px)
+        bw = min(w - bx, bw + 2 * pad_px)
+        bh = min(h - by, bh + 2 * pad_px)
         crop = img_bgr[by:by + bh, bx:bx + bw].copy()
         _draw_box(debug, bx, by, bw, bh, (0, 200, 255), "Display (bbox)")
-        return crop, debug, True
+        return crop, debug, True, (bx, by)
 
-    return None, debug, False
+    return None, debug, False, (0, 0)
 
 
 # ---------------------------------------------------------------------------
@@ -226,16 +238,17 @@ def find_display(
     """
     shared = dict(close_ksize=close_ksize, min_area_ratio=min_area_ratio, pad_px=pad_px)
     contour_args = dict(min_area_ratio=min_area_ratio, canny_low=canny_low,
-                        canny_high=canny_high, dilate_iters=dilate_iters)
+                        canny_high=canny_high, dilate_iters=dilate_iters,
+                        pad_px=pad_px)
 
     if method == "brightness":
-        crop, debug, found = _find_by_brightness(img_bgr, **shared)
+        crop, debug, found, offset = _find_by_brightness(img_bgr, **shared)
         method_used = "brightness" if found else "none"
     elif method == "color":
-        crop, debug, found = _find_by_color(img_bgr, color_ranges=color_ranges, **shared)
+        crop, debug, found, offset = _find_by_color(img_bgr, color_ranges=color_ranges, **shared)
         method_used = "color" if found else "none"
     elif method == "contour":
-        crop, debug, found = _find_by_contour(img_bgr, **contour_args)
+        crop, debug, found, offset = _find_by_contour(img_bgr, **contour_args)
         method_used = "contour" if found else "none"
     elif method == "auto":
         # A crop that covers ≥75 % of the original image didn't really isolate
@@ -243,25 +256,32 @@ def find_display(
         img_area = img_bgr.shape[0] * img_bgr.shape[1]
 
         def _useful(c) -> bool:
-            return c is not None and (c.shape[0] * c.shape[1]) < 0.75 * img_area
+            if c is None or (c.shape[0] * c.shape[1]) >= 0.75 * img_area:
+                return False
+            # Reject portrait-oriented crops — a 7-segment display is always wider than tall.
+            if c.shape[1] > 0 and c.shape[0] / c.shape[1] > 1.2:
+                return False
+            return True
 
-        crop, debug, found = _find_by_color(img_bgr, color_ranges=color_ranges, **shared)
+        crop, debug, found, offset = _find_by_color(img_bgr, color_ranges=color_ranges, **shared)
         method_used = "color"
         if not found or not _useful(crop):
-            crop, debug, found = _find_by_brightness(img_bgr, **shared)
+            crop, debug, found, offset = _find_by_brightness(img_bgr, **shared)
             method_used = "brightness"
         if not found or not _useful(crop):
-            crop, debug, found = _find_by_contour(img_bgr, **contour_args)
+            crop, debug, found, offset = _find_by_contour(img_bgr, **contour_args)
             method_used = "contour"
         if not found or not _useful(crop):
             method_used = "none"
             found = False
+            offset = (0, 0)
     else:
         raise ValueError(f"Unknown method {method!r}. Use brightness/color/contour/auto.")
 
     if not found:
         crop = img_bgr.copy()
-    return crop, debug, found, method_used
+        offset = (0, 0)
+    return crop, debug, found, method_used, offset
 
 
 def compose_debug(localize_debug: np.ndarray, annotated: np.ndarray) -> np.ndarray:

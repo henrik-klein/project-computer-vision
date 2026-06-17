@@ -19,9 +19,10 @@ def run_pipeline(
     morph_kernel_size: int = 3,
     projection_threshold_factor: float = 0.05,
     segment_threshold: float = 0.3,
-    min_gap: int = 3,
+    min_gap: int = 1,
     max_width: int = 800,
     return_steps: bool = False,
+    localize: bool = True,
 ) -> tuple:
     """Vollständige 7-Segment-Pipeline.
 
@@ -57,13 +58,17 @@ def run_pipeline(
            "original_width": w0, "was_resized": was_resized})
 
     # ── Lokalisierung der Anzeigeregion ───────────────────────────────────────
-    crop, debug_img, found, method_used = find_display(img_bgr, method="auto")
+    if localize:
+        crop, debug_img, found, method_used, crop_offset = find_display(img_bgr, method="auto")
+    else:
+        crop, debug_img, found, method_used, crop_offset = img_bgr.copy(), img_bgr.copy(), False, "disabled", (0, 0)
 
     img_area = img_bgr.shape[0] * img_bgr.shape[1]
     crop_area = crop.shape[0] * crop.shape[1]
     coverage = round(crop_area / img_area, 3)
 
     _step("localize", "Display Localization",
+          "Localization disabled — full image used." if not localize else
           "Auto strategy tries color → brightness → contour in order. "
           "A method is accepted only if its crop covers less than 75 % of the original image — "
           "larger crops mean nothing was actually isolated and the next method is tried. "
@@ -122,23 +127,10 @@ def run_pipeline(
           {"kernel_size": morph_kernel_size, "pixels_before": px_before,
            "pixels_after": px_after_open, "pixels_removed": px_before - px_after_open})
 
-    # ── Morphologische Filter: Closing schließt Lücken in Segmenten ──────────
-    px_before_close = px_after_open
-    binary = morphology.closing(binary, kernel)
-    px_after_close = int(binary.sum())
-
-    _step("closing", "Morphological Closing (Fill Gaps)",
-          f"closing = erode(dilate(B,K), K) with {morph_kernel_size}×{morph_kernel_size} kernel. "
-          "Dilation merges nearby blobs and shrinks holes; erosion restores size. "
-          "Permanently fills small intra-segment gaps.",
-          visualisation.binary(binary),
-          {"kernel_size": morph_kernel_size, "pixels_before": px_before_close,
-           "pixels_after": px_after_close, "pixels_added": px_after_close - px_before_close})
-
     # ── Sequential Labeling — Zwei-Pass mit Union-Find ────────────────────────
     labels = labeling.label_components(binary)
     all_stats = labeling.get_component_stats(labels)
-    kept_stats = segment.filter_components(all_stats, binary.shape[0])
+    kept_stats = segment.filter_components(all_stats, binary.shape[0], binary.shape[1])
     kept_set = {s["label"] for s in kept_stats}
 
     _step("components", "Connected Component Labeling",
@@ -156,9 +148,10 @@ def run_pipeline(
     rejected = [s for s in all_stats if s["label"] not in kept_set]
 
     _step("filtering", "Component Filtering",
-          "Rule ①: area < 30 px → noise. "
-          "Rule ②: aspect ratio > 2.0 AND area < 200 → colon/decimal-point dot. "
-          "Green = kept, purple = rejected.",
+          "Rule ①: area < 30 px → noise (purple). "
+          "Rule ②: h/w > 2.0 AND area < 200 → colon/dot (purple). "
+          "Rule ③: area > 15 % of image → background outlier (orange). "
+          "Green = kept.",
           visualisation.filter_result(labels, all_stats, kept_set),
           {"total": len(all_stats), "kept": len(kept_stats),
            "rejected_count": len(rejected),
@@ -247,8 +240,10 @@ def run_pipeline(
                         "num_digits": len(digit_boxes)},
         })
 
-    # ── Annotiertes Ergebnisbild ──────────────────────────────────────────────
-    annotated = io.draw_annotations(crop, digit_boxes, digits, number_str)
+    # ── Annotiertes Ergebnisbild — drawn on the full (non-localized) image ───
+    ox, oy = crop_offset
+    full_boxes = [(y1 + oy, x1 + ox, y2 + oy, x2 + ox) for y1, x1, y2, x2 in digit_boxes]
+    annotated = io.draw_annotations(img_bgr, full_boxes, digits, number_str)
 
     _step("result", "Final Result",
           f"Decoded: {number_str}. Green boxes = recognised digits; red = unknown ('?').",
