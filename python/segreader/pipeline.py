@@ -250,6 +250,21 @@ def run_pipeline(
           annotated.copy(),
           {"number": number_str, "digits": digits, "has_unknowns": "?" in number_str})
 
+    # ── Fallback: retry without localization if result contains unknowns ─────
+    if localize and "?" in number_str:
+        return run_pipeline(
+            path,
+            backend=backend,
+            contrast_alpha=contrast_alpha,
+            morph_kernel_size=morph_kernel_size,
+            projection_threshold_factor=projection_threshold_factor,
+            segment_threshold=segment_threshold,
+            min_gap=min_gap,
+            max_width=max_width,
+            return_steps=return_steps,
+            localize=False,
+        )
+
     if return_steps:
         return number_str, annotated, steps
     return number_str, annotated
