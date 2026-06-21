@@ -77,8 +77,8 @@ def main() -> None:
                         help="Pfad zum Eingabebild")
     parser.add_argument("-b", "--backend", default="python", help="Verarbeitungs-Backend")
     parser.add_argument("-o", "--output", default=None, help="Pfad für annotiertes Ausgabebild")
-    parser.add_argument("-t", "--threshold", type=float, default=0.15,
-                        help="Segment-Abtastschwelle (0.0-1.0, Standard: 0.15)")
+    parser.add_argument("-t", "--threshold", type=float, default=0.40,
+                        help="Segment-Abtastschwelle (0.0-1.0, Standard: 0.40)")
     parser.add_argument("-n", "--no-save", action="store_true",
                         help="Annotiertes Bild nicht speichern")
     parser.add_argument("-v", "--verbose", action="store_true",
