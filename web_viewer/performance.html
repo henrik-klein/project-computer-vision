@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Performance Analysis — Segment Reader</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #0f1117; color: #e2e8f0;
+  min-height: 100vh; padding: 2rem;
+}
+
+h1 { font-size: 1.5rem; font-weight: 600; color: #f8fafc; margin-bottom: 0.25rem; }
+h2 { font-size: 1rem; font-weight: 400; color: #64748b; margin-bottom: 1.75rem; }
+
+/* ── File loader ── */
+.loader { display: flex; gap: 1.5rem; flex-wrap: wrap; margin: 1.75rem 0; }
+.file-slot {
+  flex: 1; min-width: 240px; background: #1e2330;
+  border: 1.5px dashed #334155; border-radius: 10px; padding: 1.1rem 1.4rem;
+}
+.file-slot.python { border-color: #6366f155; }
+.file-slot.rust   { border-color: #f59e0b55; }
+.file-slot label  {
+  display: block; font-size: 0.72rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em; margin-bottom: 0.5rem;
+}
+.file-slot.python label { color: #6366f1; }
+.file-slot.rust   label { color: #f59e0b; }
+.file-slot input[type="file"] { width: 100%; color: #cbd5e1; font-size: 0.83rem; }
+.file-status { margin-top: 0.45rem; font-size: 0.76rem; color: #475569; }
+.file-status.ok  { color: #34d399; }
+.file-status.err { color: #f87171; }
+.file-hint { font-size: 0.72rem; color: #334155; margin-top: 0.25rem; font-family: monospace; }
+
+/* ── Legend ── */
+.legend {
+  display: flex; gap: 1.5rem; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap;
+}
+.legend-item { display: flex; align-items: center; gap: 0.5rem; font-size: 0.83rem; color: #94a3b8; }
+.legend-swatch { width: 22px; height: 10px; border-radius: 3px; }
+
+/* ── Summary cards ── */
+#summary { display: none; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.75rem; }
+.stat-card {
+  flex: 1; min-width: 130px; background: #1e2330;
+  border-radius: 10px; padding: 0.9rem 1.1rem; border-top: 3px solid #334155;
+}
+.stat-card.python { border-color: #6366f1; }
+.stat-card.rust   { border-color: #f59e0b; }
+.stat-card.neutral{ border-color: #34d399; }
+.stat-card .value { font-size: 1.6rem; font-weight: 700; line-height: 1; font-family: monospace; }
+.stat-card.python .value { color: #818cf8; }
+.stat-card.rust   .value { color: #fbbf24; }
+.stat-card.neutral .value { color: #34d399; }
+.stat-card .label { font-size: 0.72rem; color: #64748b; margin-top: 0.3rem; text-transform: uppercase; letter-spacing: .05em; }
+.stat-card .sub   { font-size: 0.7rem; color: #334155; margin-top: 0.2rem; font-family: monospace; }
+
+/* ── Chart ── */
+#chart-wrap { display: none; background: #1e2330; border-radius: 12px; padding: 1.25rem; margin-bottom: 1.75rem; }
+.chart-title { font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #64748b; margin-bottom: 0.9rem; }
+canvas#perf-chart { display: block; width: 100%; border-radius: 6px; }
+
+/* ── Sort controls ── */
+#sort-wrap { display: none; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; }
+.sort-label { font-size: 0.75rem; color: #64748b; }
+.sort-btn {
+  background: #1e2330; border: 1.5px solid #334155; color: #94a3b8;
+  border-radius: 6px; padding: 0.25rem 0.65rem; font-size: 0.78rem; cursor: pointer;
+  transition: all .15s;
+}
+.sort-btn:hover  { border-color: #6366f1; color: #e2e8f0; }
+.sort-btn.active { background: #6366f1; border-color: #6366f1; color: #fff; }
+
+/* ── Detail table ── */
+#table-wrap { display: none; overflow-x: auto; }
+table.detail {
+  width: 100%; border-collapse: collapse; font-size: 0.82rem;
+}
+table.detail th {
+  padding: 0.45rem 0.85rem; text-align: left; font-size: 0.72rem; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .05em; color: #64748b;
+  border-bottom: 1px solid #334155; cursor: pointer; user-select: none; white-space: nowrap;
+  background: #1e2330;
+}
+table.detail th:hover { color: #e2e8f0; }
+table.detail th.sort-asc::after  { content: ' ↑'; }
+table.detail th.sort-desc::after { content: ' ↓'; }
+table.detail td { padding: 0.4rem 0.85rem; border-bottom: 1px solid #1a1f2e; font-family: monospace; }
+table.detail td.name { color: #94a3b8; font-family: system-ui; font-size: 0.78rem; }
+table.detail td.py   { color: #818cf8; }
+table.detail td.rs   { color: #fbbf24; }
+table.detail td.speedup-fast { color: #34d399; }
+table.detail td.speedup-slow { color: #f87171; }
+table.detail td.speedup-same { color: #94a3b8; }
+table.detail td.na   { color: #334155; }
+table.detail tr:hover td { background: rgba(255,255,255,.015); }
+table.detail tr:last-child td { border-bottom: none; }
+.mini-bar-bg { display: inline-block; width: 60px; height: 6px; background: #0f1117; border-radius: 3px; vertical-align: middle; overflow: hidden; margin-right: 4px; }
+.mini-bar-fg { height: 100%; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<h1>Performance Analysis — Python vs Rust Backend</h1>
+<h2>Per-image pipeline timing measured during <code>evaluate.py</code> runs.</h2>
+
+<div class="loader">
+  <div class="file-slot python">
+    <label>Python backend result</label>
+    <input type="file" id="file-python" accept=".json">
+    <div class="file-status" id="status-python">Auto-loading…</div>
+    <div class="file-hint">data/testing/result_python.json</div>
+  </div>
+  <div class="file-slot rust">
+    <label>Rust backend result</label>
+    <input type="file" id="file-rust" accept=".json">
+    <div class="file-status" id="status-rust">Auto-loading…</div>
+    <div class="file-hint">data/testing/result_rust.json</div>
+  </div>
+</div>
+
+<div class="legend">
+  <div class="legend-item">
+    <div class="legend-swatch" style="background:#6366f1"></div>Python
+  </div>
+  <div class="legend-item">
+    <div class="legend-swatch" style="background:#f59e0b"></div>Rust
+  </div>
+</div>
+
+<!-- Summary cards -->
+<div id="summary">
+  <div class="stat-card python"><div class="value" id="py-mean">—</div><div class="label">Python mean</div><div class="sub" id="py-range"></div></div>
+  <div class="stat-card rust">  <div class="value" id="rs-mean">—</div><div class="label">Rust mean</div>  <div class="sub" id="rs-range"></div></div>
+  <div class="stat-card neutral"><div class="value" id="speedup">—</div><div class="label">Speedup (Python÷Rust)</div><div class="sub" id="speedup-note"></div></div>
+  <div class="stat-card python"><div class="value" id="py-total">—</div><div class="label">Python total</div><div class="sub" id="py-count"></div></div>
+  <div class="stat-card rust">  <div class="value" id="rs-total">—</div><div class="label">Rust total</div>  <div class="sub" id="rs-count"></div></div>
+</div>
+
+<!-- Chart -->
+<div id="chart-wrap">
+  <div class="chart-title">Processing time per image (ms)</div>
+  <canvas id="perf-chart"></canvas>
+</div>
+
+<!-- Sort + table -->
+<div id="sort-wrap">
+  <span class="sort-label">Sort by:</span>
+  <button class="sort-btn active" data-sort="name">Image</button>
+  <button class="sort-btn" data-sort="py">Python time</button>
+  <button class="sort-btn" data-sort="rs">Rust time</button>
+  <button class="sort-btn" data-sort="speedup">Speedup</button>
+</div>
+
+<div id="table-wrap">
+  <table class="detail" id="detail-table">
+    <thead>
+      <tr>
+        <th data-col="name">Image</th>
+        <th data-col="py">Python (ms)</th>
+        <th data-col="rs">Rust (ms)</th>
+        <th data-col="speedup">Speedup</th>
+        <th data-col="py_pred">Python result</th>
+        <th data-col="rs_pred">Rust result</th>
+        <th data-col="agree">Match</th>
+      </tr>
+    </thead>
+    <tbody id="detail-body"></tbody>
+  </table>
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+//  Constants
+// ─────────────────────────────────────────────
+const PY_COLOR  = '#6366f1';
+const RS_COLOR  = '#f59e0b';
+const PY_FILL   = '#6366f1cc';
+const RS_FILL   = '#f59e0bcc';
+
+// ─────────────────────────────────────────────
+//  State
+// ─────────────────────────────────────────────
+let pythonData = null, rustData = null;
+let tableRows  = [];
+let sortCol    = 'name', sortDir = 1;
+
+// ─────────────────────────────────────────────
+//  Helpers
+// ─────────────────────────────────────────────
+function toProjectUrl(path) {
+  if (!path) return path;
+  const n = String(path).replaceAll('\\', '/');
+  if (n.startsWith('http://') || n.startsWith('https://')) return n;
+  if (n.startsWith('/')) return n;
+  return '/' + n.replace(/^\.?\//, '');
+}
+
+function readJSON(file) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = e => { try { res(JSON.parse(e.target.result)); } catch(err) { rej(err); } };
+    r.onerror = () => rej(new Error('read error'));
+    r.readAsText(file);
+  });
+}
+
+function setStatus(id, msg, cls) {
+  const el = document.getElementById('status-' + id);
+  el.textContent  = msg;
+  el.className    = 'file-status' + (cls ? ' ' + cls : '');
+}
+
+function fmtMs(ms) { return ms == null ? '—' : ms.toFixed(0) + ' ms'; }
+
+function stats(arr) {
+  if (!arr.length) return null;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mean   = arr.reduce((s, v) => s + v, 0) / arr.length;
+  return { mean, min: sorted[0], max: sorted[sorted.length - 1],
+           median: sorted[Math.floor(sorted.length / 2)], total: arr.reduce((s, v) => s + v, 0) };
+}
+
+// ─────────────────────────────────────────────
+//  File loading
+// ─────────────────────────────────────────────
+async function autoLoad() {
+  const urls = [
+    toProjectUrl('data/testing/result_python.json'),
+    toProjectUrl('data/testing/result_rust.json'),
+  ];
+  const [pyRes, rsRes] = await Promise.allSettled([fetch(urls[0]), fetch(urls[1])]);
+
+  if (pyRes.status === 'fulfilled' && pyRes.value.ok) {
+    try {
+      pythonData = await pyRes.value.json();
+      const n = Object.keys(pythonData.results ?? pythonData).length;
+      setStatus('python', `Auto-loaded: ${n} results`, 'ok');
+    } catch { setStatus('python', 'Parse error', 'err'); }
+  } else {
+    setStatus('python', 'Not found — use file picker', '');
+  }
+
+  if (rsRes.status === 'fulfilled' && rsRes.value.ok) {
+    try {
+      rustData = await rsRes.value.json();
+      const n = Object.keys(rustData.results ?? rustData).length;
+      setStatus('rust', `Auto-loaded: ${n} results`, 'ok');
+    } catch { setStatus('rust', 'Parse error', 'err'); }
+  } else {
+    setStatus('rust', 'Not found — use file picker', '');
+  }
+
+  maybeRender();
+}
+
+document.getElementById('file-python').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { pythonData = await readJSON(f); setStatus('python', `Loaded: ${Object.keys(pythonData.results ?? pythonData).length} results`, 'ok'); }
+  catch { setStatus('python', 'Invalid JSON', 'err'); pythonData = null; }
+  maybeRender();
+});
+
+document.getElementById('file-rust').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { rustData = await readJSON(f); setStatus('rust', `Loaded: ${Object.keys(rustData.results ?? rustData).length} results`, 'ok'); }
+  catch { setStatus('rust', 'Invalid JSON', 'err'); rustData = null; }
+  maybeRender();
+});
+
+function maybeRender() { if (pythonData || rustData) render(); }
+
+// ─────────────────────────────────────────────
+//  Main render
+// ─────────────────────────────────────────────
+function render() {
+  const pyRes = pythonData ? (pythonData.results ?? pythonData) : {};
+  const rsRes = rustData   ? (rustData.results   ?? rustData)   : {};
+
+  const allStems = [...new Set([...Object.keys(pyRes), ...Object.keys(rsRes)])].sort();
+
+  tableRows = allStems.map(stem => ({
+    stem,
+    pyTime:  pyRes[stem]?.pipeline_time_ms ?? null,
+    rsTime:  rsRes[stem]?.pipeline_time_ms ?? null,
+    pyPred:  pyRes[stem]?.predicted ?? null,
+    rsPred:  rsRes[stem]?.predicted ?? null,
+  }));
+
+  // Speedup: Python / Rust. > 1 means Python is slower (Rust is faster).
+  tableRows.forEach(r => {
+    r.speedup = (r.pyTime != null && r.rsTime != null && r.rsTime > 0)
+      ? r.pyTime / r.rsTime : null;
+  });
+
+  renderSummary();
+  renderChart();
+  renderTable();
+
+  document.getElementById('summary').style.display   = 'flex';
+  document.getElementById('chart-wrap').style.display = 'block';
+  document.getElementById('sort-wrap').style.display  = 'flex';
+  document.getElementById('table-wrap').style.display = 'block';
+}
+
+// ─────────────────────────────────────────────
+//  Summary cards
+// ─────────────────────────────────────────────
+function renderSummary() {
+  const pyTimes = tableRows.map(r => r.pyTime).filter(t => t != null);
+  const rsTimes = tableRows.map(r => r.rsTime).filter(t => t != null);
+  const pyStat  = stats(pyTimes);
+  const rsStat  = stats(rsTimes);
+
+  const fmt = s => s ? s.mean.toFixed(0) + ' ms' : '—';
+  const rng  = s => s ? `min ${s.min.toFixed(0)} / max ${s.max.toFixed(0)} ms` : '';
+
+  document.getElementById('py-mean').textContent  = fmt(pyStat);
+  document.getElementById('py-range').textContent = rng(pyStat);
+  document.getElementById('py-total').textContent = pyStat ? (pyStat.total / 1000).toFixed(2) + ' s' : '—';
+  document.getElementById('py-count').textContent = pyTimes.length ? pyTimes.length + ' images' : '';
+
+  document.getElementById('rs-mean').textContent  = fmt(rsStat);
+  document.getElementById('rs-range').textContent = rng(rsStat);
+  document.getElementById('rs-total').textContent = rsStat ? (rsStat.total / 1000).toFixed(2) + ' s' : '—';
+  document.getElementById('rs-count').textContent = rsTimes.length ? rsTimes.length + ' images' : '';
+
+  if (pyStat && rsStat) {
+    const sp = pyStat.mean / rsStat.mean;
+    document.getElementById('speedup').textContent      = sp.toFixed(2) + '×';
+    document.getElementById('speedup-note').textContent = sp > 1
+      ? `Rust is ${sp.toFixed(1)}× faster`
+      : sp < 1
+      ? `Python is ${(1/sp).toFixed(1)}× faster`
+      : 'Same speed';
+  } else {
+    document.getElementById('speedup').textContent      = '—';
+    document.getElementById('speedup-note').textContent = 'Need both backends';
+  }
+}
+
+// ─────────────────────────────────────────────
+//  Chart
+// ─────────────────────────────────────────────
+function niceTicks(maxVal, targetCount) {
+  if (maxVal <= 0) return [0];
+  const raw  = maxVal / targetCount;
+  const mag  = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  const nice = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+  const step = nice * mag;
+  const ticks = [];
+  for (let v = 0; v <= maxVal * 1.05; v += step) ticks.push(Math.round(v));
+  return ticks;
+}
+
+function renderChart() {
+  const canvas = document.getElementById('perf-chart');
+  const rows   = sortedRows();
+
+  const allTimes  = rows.flatMap(r => [r.pyTime, r.rsTime]).filter(t => t != null);
+  const maxTime   = allTimes.length ? Math.max(...allTimes) : 1;
+
+  const DPR    = window.devicePixelRatio || 1;
+  const W      = canvas.parentElement.clientWidth || 800;
+  const PAD_L  = 180;
+  const PAD_R  = 75;
+  const PAD_T  = 36;
+  const PAD_B  = 12;
+  const ROW_H  = 44;
+  const BAR_H  = 15;
+  const H      = PAD_T + rows.length * ROW_H + PAD_B;
+
+  canvas.width       = W * DPR;
+  canvas.height      = H * DPR;
+  canvas.style.height = H + 'px';
+
+  const ctx  = canvas.getContext('2d');
+  ctx.scale(DPR, DPR);
+  ctx.clearRect(0, 0, W, H);
+
+  const plotW = W - PAD_L - PAD_R;
+  const ticks = niceTicks(maxTime, 6);
+
+  // Grid lines + X labels
+  ctx.font = '10px system-ui';
+  ticks.forEach(t => {
+    const x = PAD_L + plotW * t / maxTime;
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    ctx.lineWidth   = 1;
+    ctx.beginPath(); ctx.moveTo(x, PAD_T - 4); ctx.lineTo(x, H - PAD_B); ctx.stroke();
+    ctx.fillStyle   = '#475569';
+    ctx.textAlign   = 'center';
+    ctx.fillText(t + ' ms', x, PAD_T - 10);
+  });
+
+  // Baseline
+  ctx.strokeStyle = '#334155';
+  ctx.lineWidth   = 1;
+  ctx.beginPath(); ctx.moveTo(PAD_L, PAD_T - 4); ctx.lineTo(PAD_L, H - PAD_B); ctx.stroke();
+
+  // Rows
+  rows.forEach((row, i) => {
+    const y   = PAD_T + i * ROW_H;
+    const midY = y + ROW_H / 2;
+    const pyY  = midY - BAR_H - 2;
+    const rsY  = midY + 2;
+
+    // Zebra background
+    if (i % 2 === 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.015)';
+      ctx.fillRect(0, y, W, ROW_H);
+    }
+
+    // Image label
+    const label = row.stem.length > 24 ? row.stem.slice(0, 21) + '…' : row.stem;
+    ctx.fillStyle  = '#94a3b8';
+    ctx.textAlign  = 'right';
+    ctx.font       = '11px system-ui';
+    ctx.fillText(label, PAD_L - 8, midY + 4);
+
+    // Python bar
+    if (row.pyTime != null) {
+      const bw = Math.max(2, plotW * row.pyTime / maxTime);
+      ctx.fillStyle = PY_FILL;
+      ctx.beginPath(); ctx.roundRect(PAD_L, pyY, bw, BAR_H, 2); ctx.fill();
+      ctx.fillStyle  = '#818cf8';
+      ctx.textAlign  = 'left';
+      ctx.font       = '9px "ui-monospace", monospace';
+      if (bw + 4 + 30 < plotW) {
+        ctx.fillText(row.pyTime.toFixed(0) + ' ms', PAD_L + bw + 4, pyY + BAR_H - 2);
+      }
+    } else {
+      // no data
+      ctx.strokeStyle = PY_COLOR + '44';
+      ctx.lineWidth   = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeRect(PAD_L, pyY, 36, BAR_H);
+      ctx.setLineDash([]);
+      ctx.fillStyle  = '#334155';
+      ctx.textAlign  = 'left';
+      ctx.font       = '9px system-ui';
+      ctx.fillText('N/A', PAD_L + 40, pyY + BAR_H - 2);
+    }
+
+    // Rust bar
+    if (row.rsTime != null) {
+      const bw = Math.max(2, plotW * row.rsTime / maxTime);
+      ctx.fillStyle = RS_FILL;
+      ctx.beginPath(); ctx.roundRect(PAD_L, rsY, bw, BAR_H, 2); ctx.fill();
+      ctx.fillStyle  = '#fbbf24';
+      ctx.textAlign  = 'left';
+      ctx.font       = '9px "ui-monospace", monospace';
+      if (bw + 4 + 30 < plotW) {
+        ctx.fillText(row.rsTime.toFixed(0) + ' ms', PAD_L + bw + 4, rsY + BAR_H - 2);
+      }
+    } else {
+      ctx.strokeStyle = RS_COLOR + '44';
+      ctx.lineWidth   = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.strokeRect(PAD_L, rsY, 36, BAR_H);
+      ctx.setLineDash([]);
+      ctx.fillStyle  = '#334155';
+      ctx.textAlign  = 'left';
+      ctx.font       = '9px system-ui';
+      ctx.fillText('N/A', PAD_L + 40, rsY + BAR_H - 2);
+    }
+
+    // Speedup badge (right side)
+    if (row.speedup != null) {
+      const label = row.speedup.toFixed(2) + '×';
+      const col   = row.speedup > 1.1 ? '#34d399' : row.speedup < 0.9 ? '#f87171' : '#94a3b8';
+      ctx.fillStyle  = col;
+      ctx.textAlign  = 'right';
+      ctx.font       = '10px "ui-monospace", monospace';
+      ctx.fillText(label, W - 6, midY + 4);
+    }
+  });
+}
+
+// ─────────────────────────────────────────────
+//  Table
+// ─────────────────────────────────────────────
+function sortedRows() {
+  return [...tableRows].sort((a, b) => {
+    let va, vb;
+    if      (sortCol === 'name')    { va = a.stem;    vb = b.stem;    }
+    else if (sortCol === 'py')      { va = a.pyTime  ?? Infinity; vb = b.pyTime  ?? Infinity; }
+    else if (sortCol === 'rs')      { va = a.rsTime  ?? Infinity; vb = b.rsTime  ?? Infinity; }
+    else if (sortCol === 'speedup') { va = a.speedup ?? -Infinity; vb = b.speedup ?? -Infinity; }
+    else if (sortCol === 'py_pred') { va = a.pyPred  ?? ''; vb = b.pyPred ?? ''; }
+    else if (sortCol === 'rs_pred') { va = a.rsPred  ?? ''; vb = b.rsPred ?? ''; }
+    else if (sortCol === 'agree')   {
+      va = (a.pyPred != null && a.pyPred === a.rsPred) ? 0 : 1;
+      vb = (b.pyPred != null && b.pyPred === b.rsPred) ? 0 : 1;
+    }
+    if (typeof va === 'string') return sortDir * va.localeCompare(vb);
+    return sortDir * (va - vb);
+  });
+}
+
+function renderTable() {
+  const rows = sortedRows();
+  const pyTimes  = tableRows.map(r => r.pyTime).filter(t => t != null);
+  const rsTimes  = tableRows.map(r => r.rsTime).filter(t => t != null);
+  const maxPy    = pyTimes.length ? Math.max(...pyTimes) : 1;
+  const maxRs    = rsTimes.length ? Math.max(...rsTimes) : 1;
+
+  document.getElementById('detail-body').innerHTML = rows.map(row => {
+    const pyW = row.pyTime != null ? (row.pyTime / maxPy * 100).toFixed(1) : 0;
+    const rsW = row.rsTime != null ? (row.rsTime / maxRs * 100).toFixed(1) : 0;
+
+    const pyCell = row.pyTime != null
+      ? `<td class="py"><span class="mini-bar-bg"><span class="mini-bar-fg" style="width:${pyW}%;background:${PY_COLOR}"></span></span>${row.pyTime.toFixed(1)}</td>`
+      : `<td class="na">—</td>`;
+
+    const rsCell = row.rsTime != null
+      ? `<td class="rs"><span class="mini-bar-bg"><span class="mini-bar-fg" style="width:${rsW}%;background:${RS_COLOR}"></span></span>${row.rsTime.toFixed(1)}</td>`
+      : `<td class="na">—</td>`;
+
+    let spClass = 'na', spText = '—';
+    if (row.speedup != null) {
+      spText  = row.speedup.toFixed(2) + '×';
+      spClass = row.speedup > 1.1 ? 'speedup-fast' : row.speedup < 0.9 ? 'speedup-slow' : 'speedup-same';
+    }
+
+    const agree = (row.pyPred != null && row.rsPred != null)
+      ? (row.pyPred === row.rsPred
+          ? `<td style="color:#34d399">✓ same</td>`
+          : `<td style="color:#f87171">✗ differ</td>`)
+      : `<td class="na">—</td>`;
+
+    return `<tr>
+      <td class="name">${row.stem}</td>
+      ${pyCell}
+      ${rsCell}
+      <td class="${spClass}">${spText}</td>
+      <td style="color:#94a3b8">${row.pyPred ?? '—'}</td>
+      <td style="color:#94a3b8">${row.rsPred ?? '—'}</td>
+      ${agree}
+    </tr>`;
+  }).join('');
+
+  // Column sort indicators
+  document.querySelectorAll('table.detail th[data-col]').forEach(th => {
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (th.dataset.col === sortCol) th.classList.add(sortDir === 1 ? 'sort-asc' : 'sort-desc');
+  });
+}
+
+// ─────────────────────────────────────────────
+//  Sort wiring
+// ─────────────────────────────────────────────
+document.querySelectorAll('table.detail th[data-col]').forEach(th => {
+  th.addEventListener('click', () => {
+    if (sortCol === th.dataset.col) sortDir *= -1;
+    else { sortCol = th.dataset.col; sortDir = 1; }
+    renderChart();
+    renderTable();
+  });
+});
+
+document.querySelectorAll('.sort-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.sort-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    sortCol = btn.dataset.sort;
+    sortDir = btn.dataset.sort === 'name' ? 1 : -1;
+    renderChart();
+    renderTable();
+  });
+});
+
+window.addEventListener('resize', () => {
+  if (tableRows.length) renderChart();
+});
+
+// ─────────────────────────────────────────────
+//  Boot
+// ─────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', autoLoad);
+</script>
+</body>
+</html>

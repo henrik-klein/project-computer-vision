@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>7-Segment Pipeline Viewer</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:      #0d1117;
+  --surface: #161b22;
+  --border:  #30363d;
+  --text:    #e6edf3;
+  --muted:   #8b949e;
+  --green:   #22c55e;
+  --blue:    #58a6ff;
+  --orange:  #f97316;
+  --red:     #ef4444;
+}
+body { background: var(--bg); color: var(--text); font: 15px/1.6 system-ui, sans-serif; min-height: 100vh; }
+a { color: var(--blue); }
+code { font-family: monospace; font-size: 13px; color: var(--blue); }
+
+/* ── Drop / load screen ── */
+#load-screen {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  min-height: 100vh; gap: 1.5rem; padding: 2rem;
+}
+#drop-zone {
+  border: 2px dashed var(--border); border-radius: 16px;
+  padding: 3rem 4rem; text-align: center; cursor: pointer;
+  transition: border-color .2s, background .2s; max-width: 480px; width: 100%;
+}
+#drop-zone.drag-over { border-color: var(--blue); background: rgba(88,166,255,.06); }
+#drop-zone h2 { font-size: 1.1rem; margin-bottom: .5rem; }
+#drop-zone p { color: var(--muted); font-size: 13px; }
+#file-input { display: none; }
+.load-btn {
+  margin-top: 1.2rem; padding: .55rem 1.4rem; background: var(--blue); color: #000;
+  border: none; border-radius: 8px; font-size: 14px; font-weight: 600;
+  cursor: pointer; display: inline-block;
+}
+.load-btn:hover { opacity: .9; }
+#load-error { color: var(--red); font-size: 13px; display: none; }
+
+/* ── App layout ── */
+#app { display: none; }
+#app.visible { display: flex; min-height: 100vh; }
+
+nav {
+  width: 230px; min-width: 230px; background: var(--surface);
+  border-right: 1px solid var(--border); padding: 1rem 0;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 1px;
+}
+nav .brand { padding: .5rem 1rem .8rem; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.nav-link {
+  display: flex; align-items: center; gap: .5rem; padding: .35rem 1rem;
+  color: var(--muted); font-size: 13px; cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.nav-link:hover, .nav-link.active { background: rgba(255,255,255,.04); color: var(--text); }
+.nav-n {
+  font-size: 11px; background: var(--border); color: var(--muted);
+  border-radius: 50%; width: 20px; height: 20px; display: flex;
+  align-items: center; justify-content: center; flex-shrink: 0;
+}
+.nav-load { margin: auto 1rem 1rem; }
+.nav-load button {
+  width: 100%; padding: .4rem; background: transparent; border: 1px solid var(--border);
+  color: var(--muted); border-radius: 6px; font-size: 12px; cursor: pointer;
+}
+.nav-load button:hover { border-color: var(--blue); color: var(--blue); }
+
+main { flex: 1; overflow-x: hidden; }
+
+/* ── Sticky header ── */
+.site-header {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 1.2rem 2rem; position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;
+}
+.site-header h1 { font-size: 1rem; font-weight: 600; }
+#result-pill {
+  font-size: 1.5rem; font-weight: 700; font-family: monospace;
+  background: rgba(0,0,0,.3); border-radius: 8px; padding: .1rem .7rem;
+  letter-spacing: .05em;
+}
+#header-path { font-size: 12px; color: var(--muted); font-family: monospace; margin-left: auto; }
+
+/* ── Steps ── */
+.step {
+  border-bottom: 1px solid var(--border); padding: 2rem; scroll-margin-top: 80px;
+}
+.step:last-child { border-bottom: none; }
+.step-header { display: flex; align-items: center; gap: .8rem; margin-bottom: 1.2rem; }
+.badge {
+  font-size: 12px; font-weight: 700; background: var(--blue); color: #000;
+  border-radius: 50%; width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+.step-header h2 { font-size: 1.05rem; font-weight: 600; }
+.step-body { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start; }
+.step-body.full { display: block; }
+.img-wrap { background: #000; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
+.step-img { width: 100%; display: block; cursor: zoom-in; image-rendering: pixelated; }
+.step-meta { display: flex; flex-direction: column; gap: .8rem; }
+.desc { color: var(--text); line-height: 1.7; }
+
+/* ── Detail / component tables ── */
+.dtable { border-collapse: collapse; width: 100%; font-size: 13px; }
+.dtable td { padding: .3rem .5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+.dtable td:first-child { color: var(--muted); white-space: nowrap; width: 55%; }
+.ctable { border-collapse: collapse; font-size: 12px; width: 100%; margin-top: 1.2rem; overflow-x: auto; display: block; }
+.ctable th, .ctable td { padding: .3rem .6rem; border: 1px solid var(--border); text-align: left; }
+.ctable thead { background: var(--surface); color: var(--muted); }
+.ctable tr.kept td:first-child { color: var(--green); }
+.ctable tr.rejected { opacity: .6; }
+.ctable tr.rejected td:first-child { color: var(--red); }
+
+/* ── Decoding step ── */
+.digit-grid { display: flex; flex-wrap: wrap; gap: 1.5rem; padding: 1.5rem 2rem; }
+.digit-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; overflow: hidden; min-width: 320px; flex: 1;
+}
+.digit-top {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: .55rem 1rem; background: rgba(0,0,0,.3); border-bottom: 1px solid var(--border);
+}
+.digit-idx { font-size: 13px; color: var(--muted); }
+.digit-result { font-size: 2rem; font-weight: 800; font-family: monospace; }
+.digit-result.ok { color: var(--green); }
+.digit-result.bad { color: var(--orange); }
+.digit-body { display: grid; grid-template-columns: auto 1fr; gap: 1rem; padding: 1rem; align-items: start; }
+.digit-patches { grid-column: 1/-1; display: flex; gap: 1rem; flex-wrap: wrap; }
+.digit-patches figure { display: flex; flex-direction: column; align-items: center; gap: .3rem; }
+.digit-patches figcaption { font-size: 11px; color: var(--muted); }
+.patch-img { height: 80px; width: auto; image-rendering: pixelated; cursor: zoom-in; border-radius: 4px; border: 1px solid var(--border); display: block; }
+.ztable { border-collapse: collapse; font-size: 12px; width: 100%; }
+.ztable th { padding: .25rem .4rem; color: var(--muted); border-bottom: 1px solid var(--border); text-align: left; }
+.ztable td { padding: .2rem .4rem; border-bottom: 1px solid #1e2530; }
+.ztable tr.on td:first-child { color: var(--green); font-weight: 700; }
+.ztable tr.off td:first-child { color: var(--muted); }
+.ztable tr.on td:last-child { color: var(--green); }
+.ztable tr.off td:last-child { color: #444; }
+.bar-wrap { width: 70px; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+.bar { height: 100%; background: var(--green); border-radius: 4px; }
+.active-set { font-size: 12px; color: var(--muted); margin-top: .5rem; }
+.narrow-note { font-size: 12px; color: var(--orange); margin-top: .4rem; }
+
+/* ── Params section ── */
+.params-section { padding: 2rem; border-top: 1px solid var(--border); }
+.params-section h2 { font-size: 1rem; margin-bottom: 1rem; color: var(--muted); }
+
+/* ── Zoom overlay ── */
+#zoom-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.9);
+  z-index: 1000; align-items: center; justify-content: center; cursor: zoom-out;
+}
+#zoom-overlay.active { display: flex; }
+#zoom-overlay img { max-width: 95vw; max-height: 95vh; object-fit: contain; image-rendering: pixelated; border-radius: 6px; }
+</style>
+</head>
+<body>
+
+<!-- Load screen -->
+<div id="load-screen">
+  <div>
+    <h1 style="font-size:1.4rem;margin-bottom:.4rem">7-Segment Pipeline Viewer</h1>
+    <p style="color:var(--muted);font-size:13px">Load a <code>steps.json</code> produced by <code>main.py -p</code> or <code>explain.py</code></p>
+  </div>
+  <div id="drop-zone">
+    <h2>Drop JSON file here</h2>
+    <p>or click the button to browse</p>
+    <label class="load-btn" for="file-input">Choose file…</label>
+    <input type="file" id="file-input" accept=".json">
+  </div>
+  <p id="load-error"></p>
+</div>
+
+<!-- App -->
+<div id="app">
+  <nav>
+    <div class="brand">Pipeline steps</div>
+    <div id="nav-links"></div>
+    <div class="nav-load">
+      <button onclick="resetToLoad()">↩ Load another file</button>
+    </div>
+  </nav>
+  <main>
+    <header class="site-header">
+      <h1>7-Segment Pipeline</h1>
+      <div id="result-pill"></div>
+      <span id="header-path"></span>
+    </header>
+    <div id="steps-container"></div>
+    <div class="params-section">
+      <h2>Parameters</h2>
+      <table class="dtable" id="params-table" style="max-width:400px"></table>
+    </div>
+  </main>
+</div>
+
+<!-- Zoom overlay -->
+<div id="zoom-overlay" onclick="this.classList.remove('active')">
+  <img id="zoom-img" src="" alt="zoom">
+</div>
+
+<script>
+// ── 7-segment SVG generator ───────────────────────────────────────────────────
+const SEG_RECTS = {
+  a: [14,  2, 72, 13],
+  b: [85, 16, 13, 62],
+  c: [85, 96, 13, 62],
+  d: [14,164, 72, 13],
+  e: [ 2, 96, 13, 62],
+  f: [ 2, 16, 13, 62],
+  g: [14, 82, 72, 13],
+};
+
+function svg7seg(zones) {
+  let parts = ['<svg viewBox="0 0 100 180" width="100" height="180" style="background:#0d1117;border-radius:6px;display:block">'];
+  for (const [seg, [x, y, w, h]] of Object.entries(SEG_RECTS)) {
+    const info = zones[seg] || { fill: 0, active: false };
+    const active = info.active;
+    const fill = info.fill;
+    const rectColor = active ? '#22c55e' : '#1a2a1a';
+    const txtColor  = active ? '#86efac' : '#374337';
+    const mx = x + Math.floor(w / 2);
+    const my = y + Math.floor(h / 2);
+    const pct = (fill * 100).toFixed(0) + '%';
+    parts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="${rectColor}"/>`);
+    parts.push(`<text x="${mx}" y="${my - 1}" text-anchor="middle" dominant-baseline="middle" font-size="7.5" font-family="monospace" fill="${txtColor}">${seg} ${pct}</text>`);
+  }
+  parts.push('</svg>');
+  return parts.join('');
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function zoom(el) {
+  document.getElementById('zoom-img').src = el.src;
+  document.getElementById('zoom-overlay').classList.add('active');
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.getElementById('zoom-overlay').classList.remove('active');
+});
+
+function imgTag(b64, cls) {
+  if (!b64) return '';
+  return `<img src="data:image/png;base64,${b64}" class="${cls}" onclick="zoom(this)" alt="">`;
+}
+
+function detailTable(details) {
+  if (!details) return '';
+  const rows = Object.entries(details)
+    .filter(([, v]) => typeof v !== 'object' || v === null)
+    .map(([k, v]) => `<tr><td>${k}</td><td><code>${v}</code></td></tr>`)
+    .join('');
+  return rows ? `<table class="dtable">${rows}</table>` : '';
+}
+
+function badge(n) { return `<span class="badge">${n}</span>`; }
+
+// ── Renderers ─────────────────────────────────────────────────────────────────
+function renderStandard(step, n) {
+  const desc = (step.description || '').replace(/\n/g, '<br>');
+  return `
+<section class="step" id="${step.id}">
+  <div class="step-header">${badge(n)}<h2>${step.name}</h2></div>
+  <div class="step-body">
+    <div class="img-wrap">${imgTag(step.image_b64, 'step-img')}</div>
+    <div class="step-meta">
+      <p class="desc">${desc}</p>
+      ${detailTable(step.details)}
+    </div>
+  </div>
+</section>`;
+}
+
+function renderComponents(step, n) {
+  const comps = (step.details || {}).components || [];
+  const rows = comps.map(c => `
+    <tr class="${c.kept ? 'kept' : 'rejected'}">
+      <td>${c.label}</td><td>${c.area}</td>
+      <td>${c.aspect_ratio}</td><td>[${c.bbox}]</td>
+      <td>${c.kept ? '✓' : '✗'}</td>
+    </tr>`).join('');
+  const table = comps.length ? `
+    <table class="ctable">
+      <thead><tr><th>Label</th><th>Area px</th><th>H/W</th><th>BBox</th><th>Kept</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>` : '';
+  const base = renderStandard(step, n);
+  return base.replace('</section>', `<div style="padding:0 2rem 2rem">${table}</div></section>`);
+}
+
+function renderDecoding(step, n) {
+  const desc = (step.description || '').replace(/\n/g, '<br>');
+  const threshold = (step.details || {}).segment_threshold || '';
+
+  const cards = (step.digits || []).map(d => {
+    const zoneRows = Object.entries(d.zones || {}).map(([seg, info]) => `
+      <tr class="${info.active ? 'on' : 'off'}">
+        <td><b>${seg}</b></td>
+        <td><div class="bar-wrap"><div class="bar" style="width:${(info.fill*100).toFixed(0)}%"></div></div></td>
+        <td>${(info.fill*100).toFixed(1)}%</td>
+        <td>${info.active ? 'ON ✓' : 'off'}</td>
+      </tr>`).join('');
+
+    const segs = (d.active_segments || []).join(', ');
+    const narrowNote = d.narrow_digit_shortcut
+      ? `<p class="narrow-note">⚠ Narrow patch (h/w > 3): shortcut → "1"</p>` : '';
+    const resultClass = d.decoded === '?' ? 'bad' : 'ok';
+
+    return `
+<div class="digit-card">
+  <div class="digit-top">
+    <span class="digit-idx">Digit #${d.index}</span>
+    <span class="digit-result ${resultClass}">${d.decoded}</span>
+  </div>
+  <div class="digit-body">
+    <div>${svg7seg(d.zones || {})}</div>
+    <div>
+      <table class="ztable">
+        <thead><tr><th>Seg</th><th>Fill</th><th>%</th><th>State</th></tr></thead>
+        <tbody>${zoneRows}</tbody>
+      </table>
+      ${narrowNote}
+      <p class="active-set">Active: <code>{${segs}}</code></p>
+    </div>
+    <div class="digit-patches">
+      <figure>
+        ${imgTag(d.patch_b64, 'patch-img')}
+        <figcaption>Binary patch</figcaption>
+      </figure>
+      <figure>
+        ${imgTag(d.zone_vis_b64, 'patch-img')}
+        <figcaption>Zone overlay</figcaption>
+      </figure>
+    </div>
+  </div>
+</div>`;
+  }).join('');
+
+  return `
+<section class="step" id="${step.id}">
+  <div class="step-header">${badge(n)}<h2>${step.name}</h2></div>
+  <div class="step-body full">
+    <p class="desc">${desc}</p>
+    ${threshold !== '' ? `<p style="font-size:13px;color:var(--muted);margin-top:.5rem">Segment threshold = <code>${threshold}</code></p>` : ''}
+  </div>
+  <div class="digit-grid">${cards}</div>
+</section>`;
+}
+
+function renderStep(step, n) {
+  if (step.id === 'decoding') return renderDecoding(step, n);
+  if (step.id === 'components') return renderComponents(step, n);
+  return renderStandard(step, n);
+}
+
+// ── Data loading ──────────────────────────────────────────────────────────────
+function loadData(data) {
+  try {
+    const result = data.result || '?';
+    const path = data.image_path || '';
+    const steps = data.steps || [];
+    const params = data.params || {};
+
+    // Header
+    const pill = document.getElementById('result-pill');
+    pill.textContent = result;
+    pill.style.color = result.includes('?') ? 'var(--orange)' : 'var(--green)';
+    pill.style.border = `1px solid ${result.includes('?') ? '#f9731644' : '#22c55e44'}`;
+    document.getElementById('header-path').textContent = path;
+
+    // Nav
+    const navLinks = document.getElementById('nav-links');
+    navLinks.innerHTML = steps.map((s, i) => `
+      <div class="nav-link" onclick="document.getElementById('${s.id}').scrollIntoView({behavior:'smooth'})">
+        <span class="nav-n">${i + 1}</span>${s.name}
+      </div>`).join('');
+
+    // Steps
+    document.getElementById('steps-container').innerHTML =
+      steps.map((s, i) => renderStep(s, i + 1)).join('');
+
+    // Params
+    document.getElementById('params-table').innerHTML =
+      Object.entries(params).map(([k, v]) =>
+        `<tr><td>${k}</td><td><code>${v}</code></td></tr>`).join('');
+
+    // Nav scroll-spy
+    const obs = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+          const idx = steps.findIndex(s => s.id === e.target.id);
+          const link = navLinks.querySelectorAll('.nav-link')[idx];
+          if (link) link.classList.add('active');
+        }
+      });
+    }, { rootMargin: '-20% 0px -60% 0px' });
+    document.querySelectorAll('.step').forEach(s => obs.observe(s));
+
+    document.getElementById('load-screen').style.display = 'none';
+    document.getElementById('app').classList.add('visible');
+  } catch (err) {
+    showError('Render error: ' + err.message);
+  }
+}
+
+function showError(msg) {
+  const el = document.getElementById('load-error');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function resetToLoad() {
+  document.getElementById('app').classList.remove('visible');
+  document.getElementById('load-screen').style.display = 'flex';
+  document.getElementById('load-error').style.display = 'none';
+  document.getElementById('steps-container').innerHTML = '';
+  document.getElementById('nav-links').innerHTML = '';
+  document.getElementById('file-input').value = '';
+}
+
+function handleFile(file) {
+  if (!file || !file.name.endsWith('.json')) {
+    showError('Please select a .json file.');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      loadData(JSON.parse(e.target.result));
+    } catch (err) {
+      showError('Invalid JSON: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ── Drop zone wiring ──────────────────────────────────────────────────────────
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  handleFile(e.dataTransfer.files[0]);
+});
+
+// ── Path helper ───────────────────────────────────────────────────────────────
+function toProjectUrl(path) {
+  if (!path) return path;
+  const normalized = String(path).replaceAll('\\', '/');
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
+  if (normalized.startsWith('/')) return normalized;
+  return '/' + normalized.replace(/^\.?\//, '');
+}
+
+// ── URL param: ?json=path (works with http server) ───────────────────────────
+const jsonParam = new URLSearchParams(location.search).get('json');
+if (jsonParam) {
+  fetch(toProjectUrl(jsonParam))
+    .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
+    .then(loadData)
+    .catch(err => showError('Could not load: ' + err.message));
+}
+</script>
+</body>
+</html>

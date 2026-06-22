@@ -5,11 +5,8 @@ description = "Seven-segment display reader — classical CV pipeline"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-    "matplotlib>=3.9.4",
     "numpy>=2.0.2",
     "opencv-python>=4.13.0.92",
-    "scikit-image>=0.24.0",
-    "scipy>=1.13.1",
 ]
 
 [project.optional-dependencies]
@@ -21,5 +18,6 @@ pythonpath = ["python"]
 
 [dependency-groups]
 dev = [
+    "maturin>=1.14.1",
     "pytest>=8.4.2",
 ]

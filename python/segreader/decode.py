@@ -52,12 +52,16 @@ def sample_segments(patch: np.ndarray, threshold: float = 0.3) -> frozenset:
 def decode_digit(patch: np.ndarray, threshold: float = 0.3) -> str:
     """Dekodiert eine einzelne Ziffer aus ihrem binären Patch.
 
-    Sonderfall "1": sehr schmale Box (height/width > 3) wird direkt klassifiziert,
-    da das Zonen-Sampling auf einer vollen Ziffernzelle aufgebaut ist und bei
-    engen Boxen falsche Mittelwerte liefert.
+    Sonderfall schmale Box (height/width > 3): Zone-Sampling der Segmente
+    bleibt korrekt für a und d (die eindeutig oben/unten liegen).
+      ":"  — nur a und d aktiv (zwei übereinander gestapelte Punkte)
+      "1"  — alles andere mit diesem Seitenverhältnis
     """
     H, W = patch.shape
     if W > 0 and H / W > 3:
+        active = sample_segments(patch, threshold)
+        if active == frozenset("ad"):
+            return ":"
         return "1"
     active = sample_segments(patch, threshold)
     return LOOKUP_TABLE.get(active, "?")
