@@ -49,10 +49,10 @@ def run_pipeline(
         new_w, new_h = int(w0 * scale), int(h0 * scale)
         img_bgr = cv2.resize(img_bgr, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
-    _step("original", "Original Image",
-          "Raw input image as loaded from disk."
-          + (f" Down-scaled from {w0}→{img_bgr.shape[1]} px (max_width={max_width})."
-             if was_resized else " No resize needed."),
+    _step("original", "Originalbild",
+          "Rohes Eingabebild, wie von der Festplatte geladen."
+          + (f" Herunterskaliert von {w0}→{img_bgr.shape[1]} px (max_width={max_width})."
+             if was_resized else " Keine Skalierung erforderlich."),
           img_bgr.copy(),
           {"width": img_bgr.shape[1], "height": img_bgr.shape[0],
            "original_width": w0, "was_resized": was_resized})
@@ -67,13 +67,13 @@ def run_pipeline(
     crop_area = crop.shape[0] * crop.shape[1]
     coverage = round(crop_area / img_area, 3)
 
-    _step("localize", "Display Localization",
-          "Localization disabled — full image used." if not localize else
-          "Auto strategy tries color → brightness → contour in order. "
-          "A method is accepted only if its crop covers less than 75 % of the original image — "
-          "larger crops mean nothing was actually isolated and the next method is tried. "
-          f"Winner: '{method_used}' ({'found' if found else 'not found — full image used'}, "
-          f"crop covers {coverage:.1%} of original).",
+    _step("localize", "Anzeige-Lokalisierung",
+          "Lokalisierung deaktiviert — volles Bild verwendet." if not localize else
+          "Auto-Strategie probiert Farbe → Helligkeit → Kontur der Reihe nach. "
+          "Eine Methode wird nur akzeptiert, wenn der Ausschnitt weniger als 75 % des Originalbildes bedeckt — "
+          "größere Ausschnitte bedeuten, dass nichts isoliert wurde, und die nächste Methode wird versucht. "
+          f"Gewinner: '{method_used}' ({'gefunden' if found else 'nicht gefunden — volles Bild verwendet'}, "
+          f"Ausschnitt bedeckt {coverage:.1%} des Originals).",
           visualisation.localize(debug_img, method_used, found),
           {"method_used": method_used, "found": found,
            "crop_width": crop.shape[1], "crop_height": crop.shape[0],
@@ -82,9 +82,9 @@ def run_pipeline(
     # ── Punktoperation: Graustufenkonvertierung ───────────────────────────────
     gray = preprocess.to_grayscale(crop)
 
-    _step("grayscale", "Convert to Grayscale",
-          "Weighted luma sum Y = 0.114·B + 0.587·G + 0.299·R. "
-          "Colour is irrelevant for segment detection; only brightness matters.",
+    _step("grayscale", "Umwandlung in Graustufen",
+          "Gewichtete Luma-Summe Y = 0.114·B + 0.587·G + 0.299·R. "
+          "Farbe ist für die Segmenterkennung irrelevant; nur die Helligkeit zählt.",
           visualisation.gray(gray),
           {"formula": "Y = 0.114·B + 0.587·G + 0.299·R",
            "min": int(gray.min()), "max": int(gray.max()), "mean": round(float(gray.mean()), 1)})
@@ -92,9 +92,9 @@ def run_pipeline(
     # ── Punktoperation: Kontrastverstärkung ───────────────────────────────────
     gray = preprocess.adjust_contrast(gray, alpha=contrast_alpha)
 
-    _step("contrast", "Linear Contrast Stretch",
-          f"Point op: output = clip(α·input, 0, 255) with α={contrast_alpha}. "
-          "Spreads the histogram so dark backgrounds approach 0 and bright segments approach 255.",
+    _step("contrast", "Linearer Kontrast-Stretch",
+          f"Punktoperation: Ausgabe = clip(α·Eingabe, 0, 255) mit α={contrast_alpha}. "
+          "Spreizt das Histogramm, sodass dunkle Hintergründe gegen 0 und helle Segmente gegen 255 gehen.",
           visualisation.gray(gray),
           {"alpha": contrast_alpha,
            "min": int(gray.min()), "max": int(gray.max()), "mean": round(float(gray.mean()), 2)})
@@ -105,10 +105,10 @@ def run_pipeline(
     fg_ratio = float(binary.mean())
     inverted = fg_ratio > 0.5
 
-    _step("binary", "Otsu Binarisation",
-          "Otsu picks T that maximises between-class variance σ²_B = w₀·w₁·(μ₀−μ₁)². "
-          f"T={otsu_t}. Foreground ratio {fg_ratio:.1%} → "
-          f"{'polarity inverted (bright background)' if inverted else 'no inversion needed'}.",
+    _step("binary", "Otsu-Binarisierung",
+          "Otsu wählt T, das die Zwischenklassen-Varianz σ²_B = w₀·w₁·(μ₀−μ₁)² maximiert. "
+          f"T={otsu_t}. Vordergrundanteil {fg_ratio:.1%} → "
+          f"{'Polarität invertiert (heller Hintergrund)' if inverted else 'keine Invertierung nötig'}.",
           visualisation.binary(binary),
           {"otsu_threshold": otsu_t, "foreground_ratio": round(fg_ratio, 4),
            "polarity_inverted": inverted, "foreground_pixels": int(binary.sum())})
@@ -119,10 +119,10 @@ def run_pipeline(
     binary = morphology.opening(binary, kernel)
     px_after_open = int(binary.sum())
 
-    _step("opening", "Morphological Opening (Denoise)",
-          f"opening = dilate(erode(B,K), K) with {morph_kernel_size}×{morph_kernel_size} kernel. "
-          "Erosion destroys blobs smaller than K; dilation restores survivors. "
-          "Permanently removes isolated noise pixels.",
+    _step("opening", "Morphologisches Opening (Rauschunterdrückung)",
+          f"Opening = dilate(erode(B,K), K) mit {morph_kernel_size}×{morph_kernel_size} Kern. "
+          "Erosion zerstört Blobs kleiner als K; Dilatation stellt Überlebende wieder her. "
+          "Entfernt isolierte Rauschpixel dauerhaft.",
           visualisation.binary(binary),
           {"kernel_size": morph_kernel_size, "pixels_before": px_before,
            "pixels_after": px_after_open, "pixels_removed": px_before - px_after_open})
@@ -133,9 +133,9 @@ def run_pipeline(
     kept_stats = segment.filter_components(all_stats, binary.shape[0], binary.shape[1])
     kept_set = {s["label"] for s in kept_stats}
 
-    _step("components", "Connected Component Labeling",
-          "Two-pass Union-Find (4-connectivity) assigns a unique label to every connected blob. "
-          "Each colour is one component. Grey = will be rejected.",
+    _step("components", "Zusammenhängende Komponenten-Etikettierung",
+          "Zwei-Pass Union-Find (4-Konnektivität) weist jedem zusammenhängenden Blob ein eindeutiges Label zu. "
+          "Jede Farbe ist eine Komponente. Grau = wird abgelehnt.",
           visualisation.components(labels, all_stats, kept_set),
           {"total_components": len(all_stats),
            "components": [{"label": s["label"], "area": s["area"],
@@ -147,11 +147,11 @@ def run_pipeline(
     # ── Rauschen und Doppelpunkt herausfiltern ────────────────────────────────
     rejected = [s for s in all_stats if s["label"] not in kept_set]
 
-    _step("filtering", "Component Filtering",
-          "Rule ①: area < 30 px → noise (purple). "
-          "Rule ②: h/w > 2.0 AND area < 200 → colon/dot (purple). "
-          "Rule ③: area > 15 % of image → background outlier (orange). "
-          "Green = kept.",
+    _step("filtering", "Komponentenfilterung",
+          "Regel ①: Fläche < 30 px → Rauschen (lila). "
+          "Regel ②: h/w > 2,0 UND Fläche < 200 → Doppelpunkt/Punkt (lila). "
+          "Regel ③: Fläche > 15 % des Bildes → Hintergrund-Ausreißer (orange). "
+          "Grün = behalten.",
           visualisation.filter_result(labels, all_stats, kept_set),
           {"total": len(all_stats), "kept": len(kept_stats),
            "rejected_count": len(rejected),
@@ -165,8 +165,8 @@ def run_pipeline(
     for s in kept_stats:
         clean_binary[labels == s["label"]] = 1
 
-    _step("clean", "Clean Binary Image",
-          "Only kept components remain. This is the image fed into digit segmentation.",
+    _step("clean", "Bereinigtes Binärbild",
+          "Nur behaltene Komponenten verbleiben. Dieses Bild wird in die Ziffernsegmentierung eingespeist.",
           visualisation.binary(clean_binary),
           {"foreground_pixels": int(clean_binary.sum()),
            "foreground_ratio": round(float(clean_binary.mean()), 4)})
@@ -180,10 +180,10 @@ def run_pipeline(
         min_gap=min_gap,
     )
 
-    _step("projection", "Vertical Projection Profile",
-          "proj[x] = Σ_y clean[y,x]. Peaks = digit columns; valleys = inter-digit gaps. "
-          f"Threshold = {projection_threshold_factor}·h = {thresh_px:.1f} px (blue). "
-          "Connected above-threshold runs → digit boxes (yellow).",
+    _step("projection", "Vertikales Projektionsprofil",
+          "proj[x] = Σ_y clean[y,x]. Peaks = Ziffernspalten; Täler = Abstände zwischen Ziffern. "
+          f"Schwellwert = {projection_threshold_factor}·h = {thresh_px:.1f} px (blau). "
+          "Zusammenhängende Läufe über dem Schwellwert → Ziffernboxen (gelb).",
           visualisation.projection(proj, thresh_px, digit_boxes),
           {"threshold_factor": projection_threshold_factor,
            "threshold_px": round(thresh_px, 2),
@@ -193,9 +193,9 @@ def run_pipeline(
     # ── 7-Bit-Muster → Lookup-Tabelle → Ziffer ───────────────────────────────
     number_str, digits = decode.decode_number(clean_binary, digit_boxes, segment_threshold)
 
-    _step("boxes", "Digit Bounding Boxes",
-          "Each projection run → (y1, x1, y2, x2). Vertical bounds come from actual "
-          "pixel rows in the column band, not the full image height.",
+    _step("boxes", "Ziffern-Begrenzungsrahmen",
+          "Jeder Projektionslauf → (y1, x1, y2, x2). Vertikale Grenzen stammen aus tatsächlichen "
+          "Pixelzeilen im Spaltenband, nicht aus der vollen Bildhöhe.",
           visualisation.boxes(clean_binary, digit_boxes, digits),
           {"num_digits": len(digit_boxes),
            "boxes": [{"index": i, "y1": int(y1), "x1": int(x1), "y2": int(y2), "x2": int(x2)}
@@ -227,12 +227,12 @@ def run_pipeline(
             })
         steps.append({
             "id": "decoding",
-            "name": "7-Segment Zone Sampling & Lookup",
+            "name": "7-Segment Zonenauswertung & Nachschlagetabelle",
             "description": (
-                "Each digit patch is divided into 7 fixed zones (a–g). "
-                f"Zone mean ≥ {segment_threshold} → segment ON. "
-                "Active-segment frozenset is looked up in a 10-entry table → digit. "
-                "Special case: height/width > 3 → shortcut classify as '1'."
+                "Jeder Ziffern-Patch wird in 7 feste Zonen (a–g) unterteilt. "
+                f"Zonenmittelwert ≥ {segment_threshold} → Segment AN. "
+                "Das aktive-Segment-Frozenset wird in einer 10-Einträge-Tabelle nachgeschlagen → Ziffer. "
+                "Sonderfall: Höhe/Breite > 3 → Abkürzung, klassifiziert als '1'."
             ),
             "image": visualisation.boxes(clean_binary, digit_boxes, digits),
             "digits": digit_records,
@@ -245,8 +245,8 @@ def run_pipeline(
     full_boxes = [(y1 + oy, x1 + ox, y2 + oy, x2 + ox) for y1, x1, y2, x2 in digit_boxes]
     annotated = io.draw_annotations(img_bgr, full_boxes, digits, number_str)
 
-    _step("result", "Final Result",
-          f"Decoded: {number_str}. Green boxes = recognised digits; red = unknown ('?').",
+    _step("result", "Endergebnis",
+          f"Dekodiert: {number_str}. Grüne Boxen = erkannte Ziffern; rot = unbekannt ('?').",
           annotated.copy(),
           {"number": number_str, "digits": digits, "has_unknowns": "?" in number_str})
 

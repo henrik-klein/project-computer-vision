@@ -86,7 +86,22 @@ main { flex: 1; overflow-x: hidden; }
   background: rgba(0,0,0,.3); border-radius: 8px; padding: .1rem .7rem;
   letter-spacing: .05em;
 }
-#header-path { font-size: 12px; color: var(--muted); font-family: monospace; margin-left: auto; }
+#header-path { font-size: 12px; color: var(--muted); font-family: monospace; }
+#pres-btn {
+  margin-left: auto;
+  padding: .4rem 1rem;
+  background: transparent;
+  border: 1.5px solid var(--border);
+  color: var(--muted);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+  white-space: nowrap;
+  display: flex; align-items: center; gap: .45rem;
+}
+#pres-btn:hover { border-color: var(--blue); color: var(--blue); }
 
 /* ── Steps ── */
 .step {
@@ -160,6 +175,238 @@ main { flex: 1; overflow-x: hidden; }
 }
 #zoom-overlay.active { display: flex; }
 #zoom-overlay img { max-width: 95vw; max-height: 95vh; object-fit: contain; image-rendering: pixelated; border-radius: 6px; }
+
+/* ═══════════════════════════════════════════════════════════
+   PRESENTATION OVERLAY
+   ═══════════════════════════════════════════════════════════ */
+#pres-overlay {
+  display: none; position: fixed; inset: 0; z-index: 3000;
+  background: #ffffff;
+  flex-direction: column;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+#pres-overlay.active { display: flex; }
+
+/* Top bar */
+#pres-topbar {
+  display: flex; align-items: center; gap: 1rem;
+  padding: .8rem 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  background: #fff;
+  flex-shrink: 0;
+}
+#pres-counter {
+  font-size: 12px; color: #6b7280; font-weight: 700;
+  background: #f3f4f6; padding: .2rem .75rem;
+  border-radius: 999px; white-space: nowrap;
+  letter-spacing: .03em;
+}
+#pres-topbar-title {
+  flex: 1; text-align: center;
+  font-size: .95rem; font-weight: 600; color: #374151;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#pres-close-btn, #pres-fullscreen-btn {
+  background: none; border: 1.5px solid #e5e7eb;
+  color: #6b7280; border-radius: 8px;
+  width: 32px; height: 32px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: all .15s;
+}
+#pres-close-btn:hover, #pres-fullscreen-btn:hover { background: #f3f4f6; color: #111827; border-color: #d1d5db; }
+
+/* Progress bar */
+#pres-progress-wrap { height: 3px; background: #f3f4f6; flex-shrink: 0; }
+#pres-progress-bar { height: 100%; background: #2563eb; transition: width .35s ease; }
+
+/* Body: image + text */
+#pres-body {
+  flex: 1; display: grid;
+  grid-template-columns: 58fr 42fr;
+  gap: 0;
+  overflow: hidden;
+  min-height: 0;
+}
+
+#pres-img-col {
+  display: flex; align-items: center; justify-content: center;
+  padding: 2.5rem 2rem 2.5rem 2.5rem;
+  background: #f9fafb;
+  border-right: 1px solid #e5e7eb;
+  overflow: hidden;
+}
+#pres-img-frame {
+  background: #fff; border-radius: 14px;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 8px 32px rgba(0,0,0,.10), 0 2px 8px rgba(0,0,0,.06);
+  overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  max-width: 100%; max-height: 100%;
+}
+#pres-main-img {
+  display: block; max-width: 100%; max-height: 62vh;
+  object-fit: contain; image-rendering: pixelated;
+}
+
+#pres-text-col {
+  display: flex; flex-direction: column; gap: 1.4rem;
+  padding: 2.5rem 2.5rem 2rem 2rem;
+  overflow-y: auto;
+}
+
+.pres-step-badge {
+  width: 48px; height: 48px; border-radius: 50%;
+  background: #2563eb; color: #fff;
+  font-size: 1.15rem; font-weight: 800;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(37,99,235,.35);
+}
+
+#pres-step-name {
+  font-size: 1.85rem; font-weight: 700; color: #111827;
+  line-height: 1.2; letter-spacing: -.02em;
+}
+
+#pres-desc {
+  font-size: 1rem; color: #4b5563; line-height: 1.8;
+}
+
+/* Details grid */
+#pres-details-wrap {
+  background: #f9fafb; border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.pres-detail-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: .5rem 1.1rem; gap: 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: .875rem;
+}
+.pres-detail-row:last-child { border-bottom: none; }
+.pres-detail-key { color: #6b7280; font-weight: 500; }
+.pres-detail-val {
+  color: #111827; font-weight: 700;
+  font-family: ui-monospace, monospace; font-size: .85rem;
+  background: #e8f0fe; padding: .1rem .5rem; border-radius: 5px;
+  max-width: 55%; text-align: right; word-break: break-all;
+}
+
+/* Result chip (shown for result step) */
+#pres-result-chip {
+  display: none;
+  font-size: 2.8rem; font-weight: 800; font-family: ui-monospace, monospace;
+  letter-spacing: .08em;
+  padding: .6rem 1.6rem; border-radius: 12px;
+  border: 2px solid #22c55e44;
+  background: rgba(34,197,94,.06);
+  color: #16a34a;
+  align-self: flex-start;
+}
+#pres-result-chip.bad { color: #f97316; border-color: #f9731644; background: rgba(249,115,22,.06); }
+
+/* Navigation */
+#pres-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1rem 2.5rem; border-top: 1px solid #e5e7eb;
+  background: #fff; flex-shrink: 0; gap: 1rem;
+}
+.pres-nav-btn {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .6rem 1.5rem; border-radius: 10px;
+  font-size: .95rem; font-weight: 600; cursor: pointer;
+  border: 1.5px solid #e5e7eb; background: #fff;
+  color: #374151; transition: all .15s;
+  white-space: nowrap;
+}
+.pres-nav-btn:hover:not(:disabled) {
+  border-color: #2563eb; color: #2563eb; background: #eff6ff;
+}
+.pres-nav-btn:disabled { opacity: .3; cursor: default; }
+.pres-nav-btn.primary {
+  background: #2563eb; color: #fff; border-color: #2563eb;
+}
+.pres-nav-btn.primary:hover:not(:disabled) {
+  background: #1d4ed8; border-color: #1d4ed8;
+}
+#pres-dots { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; justify-content: center; }
+.pres-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #d1d5db; transition: all .2s; cursor: pointer;
+  flex-shrink: 0;
+}
+.pres-dot.active { background: #2563eb; transform: scale(1.5); }
+.pres-dot:hover:not(.active) { background: #93c5fd; }
+
+/* Keyboard hint */
+#pres-key-hint {
+  font-size: 11px; color: #9ca3af; text-align: center;
+  padding-bottom: .1rem;
+}
+
+/* ── Decoding step — digit grid ── */
+#pres-decoding-wrap {
+  display: none; flex-direction: column; gap: 1.25rem;
+  padding: 1.5rem 2rem; overflow-y: auto;
+  grid-column: 1 / -1; min-height: 0;
+}
+#pres-decoding-header {
+  display: flex; align-items: flex-start; gap: 1.1rem; flex-shrink: 0;
+}
+#pres-decoding-header h2 {
+  font-size: 1.5rem; font-weight: 700; color: #111827;
+  line-height: 1.2; letter-spacing: -.02em; margin-bottom: .3rem;
+}
+#pres-decoding-header p {
+  font-size: .88rem; color: #6b7280; line-height: 1.6;
+}
+#pres-digit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 1rem;
+}
+.pdc-card {
+  background: #fff; border: 1.5px solid #e5e7eb;
+  border-radius: 12px; overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0,0,0,.06);
+}
+.pdc-top {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: .55rem 1rem;
+  background: #f9fafb; border-bottom: 1.5px solid #e5e7eb;
+}
+.pdc-index { font-size: .78rem; color: #6b7280; font-weight: 700; letter-spacing: .02em; }
+.pdc-result {
+  font-size: 2rem; font-weight: 800;
+  font-family: ui-monospace, monospace; line-height: 1;
+}
+.pdc-result.ok  { color: #16a34a; }
+.pdc-result.bad { color: #f97316; }
+.pdc-body {
+  display: grid; grid-template-columns: auto 1fr;
+  gap: .75rem; padding: .85rem 1rem; align-items: start;
+}
+.pdc-zones { border-collapse: collapse; font-size: .78rem; width: 100%; }
+.pdc-zones th {
+  color: #9ca3af; font-weight: 600; font-size: .7rem;
+  padding: .2rem .3rem; border-bottom: 1px solid #f3f4f6; text-align: left;
+}
+.pdc-zones td { padding: .2rem .3rem; border-bottom: 1px solid #f9fafb; }
+.pdc-zones tr:last-child td { border-bottom: none; }
+.pdc-zones tr.on td:first-child { color: #2563eb; font-weight: 700; }
+.pdc-zones tr.off td:first-child { color: #d1d5db; }
+.pdc-bar-bg {
+  display: inline-block; vertical-align: middle;
+  width: 44px; height: 5px; background: #f3f4f6;
+  border-radius: 999px; overflow: hidden;
+}
+.pdc-bar-fg { display: block; height: 100%; border-radius: 999px; background: #2563eb; }
+.pdc-zones tr.off .pdc-bar-fg { background: #94a3b8; }
+.pdc-pct { font-size: .7rem; font-family: ui-monospace, monospace; }
+.pdc-zones tr.on .pdc-pct { color: #2563eb; }
+.pdc-zones tr.off .pdc-pct { color: #d1d5db; }
 </style>
 </head>
 <body>
@@ -193,6 +440,10 @@ main { flex: 1; overflow-x: hidden; }
       <h1>7-Segment Pipeline</h1>
       <div id="result-pill"></div>
       <span id="header-path"></span>
+      <button id="pres-btn" onclick="openPresentation()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        Präsentation
+      </button>
     </header>
     <div id="steps-container"></div>
     <div class="params-section">
@@ -205,6 +456,48 @@ main { flex: 1; overflow-x: hidden; }
 <!-- Zoom overlay -->
 <div id="zoom-overlay" onclick="this.classList.remove('active')">
   <img id="zoom-img" src="" alt="zoom">
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     PRESENTATION OVERLAY
+     ═══════════════════════════════════════════════════ -->
+<div id="pres-overlay">
+  <div id="pres-topbar">
+    <span id="pres-counter"></span>
+    <span id="pres-topbar-title"></span>
+    <button id="pres-fullscreen-btn" onclick="toggleFullscreen()" title="Vollbild (F)">
+      <svg id="pres-fs-icon-expand" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+      <svg id="pres-fs-icon-shrink" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/></svg>
+    </button>
+    <button id="pres-close-btn" onclick="closePres()" title="Schließen (Esc)">✕</button>
+  </div>
+  <div id="pres-progress-wrap"><div id="pres-progress-bar"></div></div>
+  <div id="pres-body">
+    <div id="pres-img-col">
+      <div id="pres-img-frame">
+        <img id="pres-main-img" alt="">
+      </div>
+    </div>
+    <div id="pres-text-col">
+      <div class="pres-step-badge" id="pres-badge"></div>
+      <div id="pres-result-chip"></div>
+      <h2 id="pres-step-name"></h2>
+      <p id="pres-desc"></p>
+      <div id="pres-details-wrap"></div>
+    </div>
+    <div id="pres-decoding-wrap">
+      <div id="pres-decoding-header"></div>
+      <div id="pres-digit-grid"></div>
+    </div>
+  </div>
+  <div id="pres-nav">
+    <button class="pres-nav-btn" id="pres-prev-btn" onclick="presGoTo(presIdx - 1)">← Zurück</button>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:.5rem">
+      <div id="pres-dots"></div>
+      <div id="pres-key-hint">← → Pfeiltasten · Esc zum Schließen</div>
+    </div>
+    <button class="pres-nav-btn primary" id="pres-next-btn" onclick="presGoTo(presIdx + 1)">Weiter →</button>
+  </div>
 </div>
 
 <script>
@@ -237,14 +530,30 @@ function svg7seg(zones) {
   return parts.join('');
 }
 
+// ── 7-segment SVG (light theme for presentation) ─────────────────────────────
+function svg7segPres(zones) {
+  let parts = ['<svg viewBox="0 0 100 180" width="72" height="130" style="display:block;flex-shrink:0">'];
+  for (const [seg, [x, y, w, h]] of Object.entries(SEG_RECTS)) {
+    const info   = zones[seg] || { fill: 0, active: false };
+    const active = info.active;
+    const fill   = info.fill;
+    const rectColor = active ? '#2563eb' : '#f1f5f9';
+    const txtColor  = active ? '#bfdbfe' : '#cbd5e1';
+    const mx = x + Math.floor(w / 2);
+    const my = y + Math.floor(h / 2);
+    const pct = (fill * 100).toFixed(0) + '%';
+    parts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="${rectColor}"/>`);
+    parts.push(`<text x="${mx}" y="${my - 1}" text-anchor="middle" dominant-baseline="middle" font-size="7.5" font-family="monospace" fill="${txtColor}">${seg} ${pct}</text>`);
+  }
+  parts.push('</svg>');
+  return parts.join('');
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function zoom(el) {
   document.getElementById('zoom-img').src = el.src;
   document.getElementById('zoom-overlay').classList.add('active');
 }
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') document.getElementById('zoom-overlay').classList.remove('active');
-});
 
 function imgTag(b64, cls) {
   if (!b64) return '';
@@ -360,6 +669,153 @@ function renderStep(step, n) {
   return renderStandard(step, n);
 }
 
+// ── Presentation mode ─────────────────────────────────────────────────────────
+let currentSteps = [];
+let currentResult = '';
+let presIdx = 0;
+
+function openPresentation() {
+  if (!currentSteps.length) return;
+  presIdx = 0;
+  document.getElementById('pres-overlay').classList.add('active');
+  renderPresSlide();
+}
+
+function closePres() {
+  document.getElementById('pres-overlay').classList.remove('active');
+}
+
+function presGoTo(n) {
+  presIdx = Math.max(0, Math.min(n, currentSteps.length - 1));
+  renderPresSlide();
+}
+
+// Friendly label for detail keys
+function fmtKey(k) {
+  return k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function renderPresDecodingContent(step) {
+  const desc = (step.description || '').replace(/\n/g, ' ');
+  const digits = step.digits || [];
+
+  document.getElementById('pres-decoding-header').innerHTML = `
+    <div class="pres-step-badge" style="flex-shrink:0">${presIdx + 1}</div>
+    <div>
+      <h2>${step.name}</h2>
+      <p>${desc}</p>
+    </div>`;
+
+  document.getElementById('pres-digit-grid').innerHTML = digits.map(d => {
+    const resultClass = d.decoded === '?' ? 'bad' : 'ok';
+    const zoneRows = Object.entries(d.zones || {}).map(([seg, info]) => {
+      const barW = Math.round(info.fill * 100);
+      return `<tr class="${info.active ? 'on' : 'off'}">
+        <td><b>${seg}</b></td>
+        <td><span class="pdc-bar-bg"><span class="pdc-bar-fg" style="width:${barW}%"></span></span></td>
+        <td class="pdc-pct">${barW}%</td>
+      </tr>`;
+    }).join('');
+
+    return `<div class="pdc-card">
+      <div class="pdc-top">
+        <span class="pdc-index">Digit #${d.index}</span>
+        <span class="pdc-result ${resultClass}">${d.decoded}</span>
+      </div>
+      <div class="pdc-body">
+        ${svg7segPres(d.zones || {})}
+        <table class="pdc-zones">
+          <thead><tr><th>Seg</th><th>Fill</th><th>%</th></tr></thead>
+          <tbody>${zoneRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderPresSlide() {
+  const step  = currentSteps[presIdx];
+  const total = currentSteps.length;
+  const isDecoding = step.id === 'decoding';
+
+  // Top bar
+  document.getElementById('pres-counter').textContent = `${presIdx + 1} / ${total}`;
+  document.getElementById('pres-topbar-title').textContent = step.name;
+
+  // Progress bar
+  document.getElementById('pres-progress-bar').style.width =
+    `${((presIdx + 1) / total) * 100}%`;
+
+  // Toggle layout: decoding uses full-width digit grid, others use img+text columns
+  document.getElementById('pres-img-col').style.display       = isDecoding ? 'none' : '';
+  document.getElementById('pres-text-col').style.display      = isDecoding ? 'none' : '';
+  document.getElementById('pres-decoding-wrap').style.display = isDecoding ? 'flex' : 'none';
+
+  if (isDecoding) {
+    renderPresDecodingContent(step);
+  } else {
+    // Badge + name
+    document.getElementById('pres-badge').textContent = presIdx + 1;
+    document.getElementById('pres-step-name').textContent = step.name;
+
+    // Description
+    const desc = (step.description || '').replace(/\n/g, ' ');
+    document.getElementById('pres-desc').textContent = desc;
+
+    // Image
+    const imgEl = document.getElementById('pres-main-img');
+    if (step.image_b64) {
+      imgEl.src = `data:image/png;base64,${step.image_b64}`;
+      imgEl.style.display = 'block';
+      document.getElementById('pres-img-col').style.display = '';
+    } else {
+      imgEl.src = '';
+      imgEl.style.display = 'none';
+      document.getElementById('pres-img-col').style.display = 'none';
+    }
+
+    // Result chip (only on result step)
+    const chip = document.getElementById('pres-result-chip');
+    if (step.id === 'result' && currentResult) {
+      chip.textContent = currentResult;
+      chip.className = currentResult.includes('?') ? 'bad' : '';
+      chip.style.display = 'flex';
+    } else {
+      chip.style.display = 'none';
+    }
+
+    // Details — scalar values only
+    const details  = step.details || {};
+    const SKIP_KEYS = new Set(['components', 'boxes', 'digits', 'rejected']);
+    const rows = Object.entries(details)
+      .filter(([k, v]) => !SKIP_KEYS.has(k) && (typeof v !== 'object' || v === null))
+      .map(([k, v]) => {
+        const displayVal = typeof v === 'number'
+          ? (Number.isInteger(v) ? v : v.toFixed(4))
+          : String(v);
+        return `<div class="pres-detail-row">
+          <span class="pres-detail-key">${fmtKey(k)}</span>
+          <span class="pres-detail-val">${displayVal}</span>
+        </div>`;
+      }).join('');
+
+    const wrap = document.getElementById('pres-details-wrap');
+    wrap.innerHTML = rows;
+    wrap.style.display = rows ? 'block' : 'none';
+  }
+
+  // Dots
+  document.getElementById('pres-dots').innerHTML = currentSteps.map((s, i) =>
+    `<div class="pres-dot ${i === presIdx ? 'active' : ''}" onclick="presGoTo(${i})" title="${s.name}"></div>`
+  ).join('');
+
+  // Nav buttons
+  document.getElementById('pres-prev-btn').disabled = presIdx === 0;
+  document.getElementById('pres-next-btn').disabled = presIdx === total - 1;
+  document.getElementById('pres-next-btn').textContent =
+    presIdx === total - 1 ? 'Ende' : 'Weiter →';
+}
+
 // ── Data loading ──────────────────────────────────────────────────────────────
 function loadData(data) {
   try {
@@ -367,6 +823,9 @@ function loadData(data) {
     const path = data.image_path || '';
     const steps = data.steps || [];
     const params = data.params || {};
+
+    currentSteps = steps;
+    currentResult = result;
 
     // Header
     const pill = document.getElementById('result-pill');
@@ -424,6 +883,7 @@ function resetToLoad() {
   document.getElementById('steps-container').innerHTML = '';
   document.getElementById('nav-links').innerHTML = '';
   document.getElementById('file-input').value = '';
+  currentSteps = [];
 }
 
 function handleFile(file) {
@@ -442,6 +902,18 @@ function handleFile(file) {
   reader.readAsText(file);
 }
 
+// ── Keyboard handling ─────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  const presActive = document.getElementById('pres-overlay').classList.contains('active');
+  if (presActive) {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); presGoTo(presIdx + 1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); presGoTo(presIdx - 1); }
+    else if (e.key === 'Escape') closePres();
+    return;
+  }
+  if (e.key === 'Escape') document.getElementById('zoom-overlay').classList.remove('active');
+});
+
 // ── Drop zone wiring ──────────────────────────────────────────────────────────
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
@@ -456,12 +928,36 @@ dropZone.addEventListener('drop', e => {
   handleFile(e.dataTransfer.files[0]);
 });
 
+// ── Fullscreen ────────────────────────────────────────────────────────────────
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen().catch(() => {});
+  }
+}
+document.addEventListener('fullscreenchange', () => {
+  const inFs = !!document.fullscreenElement;
+  document.getElementById('pres-fs-icon-expand').style.display = inFs ? 'none' : '';
+  document.getElementById('pres-fs-icon-shrink').style.display = inFs ? '' : 'none';
+});
+
 // ── URL param: ?json=path (works with http server) ───────────────────────────
-const jsonParam = new URLSearchParams(location.search).get('json');
+const _urlParams = new URLSearchParams(location.search);
+const jsonParam  = _urlParams.get('json');
+const presParam  = _urlParams.get('pres') === '1';
+
 if (jsonParam) {
   fetch(jsonParam)
     .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
-    .then(loadData)
+    .then(data => {
+      loadData(data);
+      if (presParam) {
+        // auto-open presentation and request fullscreen (requires user gesture in some browsers)
+        openPresentation();
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
+    })
     .catch(err => showError('Could not load: ' + err.message));
 }
 </script>
