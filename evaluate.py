@@ -16,7 +16,6 @@ import argparse
 import base64
 import json
 import os
-import subprocess
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -27,6 +26,7 @@ import cv2
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "python"))
 
 from segreader import run_pipeline
+from segreader.steps_io import save_processed_steps
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff"}
 
@@ -42,38 +42,30 @@ def image_to_b64(img) -> str:
 
 def _process_image(path: str, stem: str, args) -> tuple[str, dict, str]:
     """Process one image and return (stem, entry_dict, log_line)."""
-    number_str, annotated = run_pipeline(
+    number_str, annotated, steps = run_pipeline(
         path,
         backend=args.backend,
         segment_threshold=args.threshold,
         localize=not args.no_localize,
+        return_steps=True,
     )
 
-    # Generate steps.json via main.py --no-save --processed.
-    # main.py exits with code 2 when no digits are decoded ("?"), but _save_processed
-    # already wrote steps.json before that exit, so check the file unconditionally.
-    _script_dir = os.path.dirname(os.path.abspath(__file__))
-    _main_script = os.path.join(_script_dir, "main.py")
     steps_json_path = None
-    cmd = [sys.executable, _main_script, path, "--no-save", "--processed",
-           "--threshold", str(args.threshold), "--backend", args.backend]
-    if args.no_localize:
-        cmd.append("--no-localize")
     try:
-        subprocess.run(cmd, capture_output=True, cwd=_script_dir)
+        steps_json_path = save_processed_steps(
+            steps, path, number_str,
+            {"segment_threshold": args.threshold, "backend": args.backend},
+        )
     except Exception:
         pass
-    _candidate = os.path.join("data", "processed", stem, "steps.json")
-    if os.path.isfile(os.path.join(_script_dir, _candidate)):
-        steps_json_path = _candidate
 
     entry = {
-        "predicted":  number_str,
+        "predicted":   number_str,
         "overlay_b64": image_to_b64(annotated),
         "steps_json":  steps_json_path,
     }
 
-    log = f"→ {number_str!r}"
+    log = f"-> {number_str!r}"
     return stem, entry, log
 
 
