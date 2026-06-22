@@ -10,7 +10,10 @@ def load_image(path: str) -> np.ndarray:
 
 
 def save_image(path: str, image: np.ndarray) -> None:
-    cv2.imwrite(path, image)
+    """Write a BGR/grayscale image to disk; raises OSError if the write fails."""
+    ok = cv2.imwrite(path, image)
+    if not ok:
+        raise OSError(f"Failed to write image: {path}")
 
 
 def draw_annotations(

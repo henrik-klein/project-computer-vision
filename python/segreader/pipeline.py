@@ -5,24 +5,50 @@ import numpy as np
 
 from . import io, preprocess, morphology, labeling, segment, decode, backend as backend_mod
 from .decode import SEGMENT_ZONES
-from .localize import find_display
-from .visualisation import visualisation
+from .localize import find_display, shrink_bbox
+from . import visualisation
 
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
+
+def _binary_stage_summary(binary: np.ndarray) -> dict:
+    """Fast component summary for diagnostic use only (cv2 CCL, 4-connectivity).
+
+    Returns count, largest_area, largest_ratio.  cv2 is already imported by
+    pipeline.py for I/O and localization — this is NOT part of the core algorithm.
+    """
+    n, _, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=4)
+    img_area = binary.shape[0] * binary.shape[1]
+    n_comp = n - 1  # label 0 is background
+    if n_comp <= 0 or img_area == 0:
+        return {"count": 0, "largest_area": 0, "largest_ratio": 0.0}
+    largest = int(stats[1:, cv2.CC_STAT_AREA].max())
+    return {"count": n_comp, "largest_area": largest,
+            "largest_ratio": round(largest / img_area, 4)}
+
 
 def run_pipeline(
     path: str,
     backend: str = "python",
     contrast_alpha: float = 1.5,
     morph_kernel_size: int = 3,
+    morph_type: str = "opening",
+    morph_kernel_height: int = 0,
+    morph_kernel_width: int = 0,
     projection_threshold_factor: float = 0.05,
     segment_threshold: float = 0.3,
     min_gap: int = 1,
     max_width: int = 800,
     return_steps: bool = False,
     localize: bool = True,
+    localize_method: str = "auto",
+    localize_fallback: bool = True,
+    localize_useful_ratio: float = 0.75,
+    localize_shrink: float = 0.0,
+    binarization: str = "otsu_bright",
+    local_mean_window: int = 31,
+    local_mean_offset: int = 10,
 ) -> tuple:
     """Vollständige 7-Segment-Pipeline.
 
@@ -59,25 +85,44 @@ def run_pipeline(
 
     # ── Lokalisierung der Anzeigeregion ───────────────────────────────────────
     if localize:
-        crop, debug_img, found, method_used, crop_offset = find_display(img_bgr, method="auto")
+        crop, debug_img, found, method_used, crop_offset = find_display(
+            img_bgr, method=localize_method, useful_ratio=localize_useful_ratio
+        )
     else:
         crop, debug_img, found, method_used, crop_offset = img_bgr.copy(), img_bgr.copy(), False, "disabled", (0, 0)
+
+    # Optional inward crop-shrink to exclude display frame / border artefacts.
+    if localize_shrink > 0 and found:
+        ih, iw = img_bgr.shape[:2]
+        ox, oy = crop_offset
+        new_ox, new_oy, new_cw, new_ch = shrink_bbox(ox, oy, crop.shape[1], crop.shape[0], localize_shrink)
+        # Clamp to image bounds (only relevant when min_w/min_h clamp activated).
+        new_cw = min(new_cw, iw - new_ox)
+        new_ch = min(new_ch, ih - new_oy)
+        if new_cw > 0 and new_ch > 0:
+            crop = img_bgr[new_oy:new_oy + new_ch, new_ox:new_ox + new_cw].copy()
+            crop_offset = (new_ox, new_oy)
 
     img_area = img_bgr.shape[0] * img_bgr.shape[1]
     crop_area = crop.shape[0] * crop.shape[1]
     coverage = round(crop_area / img_area, 3)
+    crop_ar = round(crop.shape[1] / crop.shape[0], 3) if crop.shape[0] > 0 else None
 
     _step("localize", "Display Localization",
           "Localization disabled — full image used." if not localize else
-          "Auto strategy tries color → brightness → contour in order. "
-          "A method is accepted only if its crop covers less than 75 % of the original image — "
-          "larger crops mean nothing was actually isolated and the next method is tried. "
+          f"Strategy '{localize_method}' (useful_ratio={localize_useful_ratio:.0%}). "
+          "auto tries color → brightness → contour; accepts first crop below the ratio threshold. "
           f"Winner: '{method_used}' ({'found' if found else 'not found — full image used'}, "
-          f"crop covers {coverage:.1%} of original).",
+          f"crop covers {coverage:.1%} of original"
+          + (f", shrunk by {localize_shrink:.0%}" if localize_shrink > 0 and found else "")
+          + ").",
           visualisation.localize(debug_img, method_used, found),
           {"method_used": method_used, "found": found,
            "crop_width": crop.shape[1], "crop_height": crop.shape[0],
-           "coverage": coverage})
+           "crop_x": crop_offset[0], "crop_y": crop_offset[1],
+           "crop_aspect_ratio": crop_ar,
+           "coverage": coverage,
+           "localize_shrink_applied": localize_shrink > 0 and found})
 
     # ── Punktoperation: Graustufenkonvertierung ───────────────────────────────
     gray = preprocess.to_grayscale(crop)
@@ -99,38 +144,102 @@ def run_pipeline(
           {"alpha": contrast_alpha,
            "min": int(gray.min()), "max": int(gray.max()), "mean": round(float(gray.mean()), 2)})
 
-    # ── Histogramm / Otsu-Schwellwert: Binarisierung ─────────────────────────
-    otsu_t = visualisation.otsu_threshold(gray) if return_steps else 0
-    binary = preprocess.otsu_binarize(gray)
+    # ── Binarisierung ─────────────────────────────────────────────────────────
+    _valid_binarizations = ("otsu_bright", "otsu_dark", "local_mean_dark", "local_mean_bright")
+    if binarization not in _valid_binarizations:
+        raise ValueError(f"Unknown binarization {binarization!r}. Options: {_valid_binarizations}")
+
+    otsu_t = 0
+    if binarization in ("otsu_bright", "otsu_dark"):
+        otsu_t = visualisation.otsu_threshold(gray) if return_steps else 0
+
+    if binarization == "otsu_bright":
+        binary = preprocess.otsu_binarize(gray)
+    elif binarization == "otsu_dark":
+        binary = preprocess.otsu_dark_binarize(gray)
+    elif binarization == "local_mean_dark":
+        binary = preprocess.local_mean_binarize(gray, local_mean_window, local_mean_offset, "dark")
+    else:  # local_mean_bright
+        binary = preprocess.local_mean_binarize(gray, local_mean_window, local_mean_offset, "bright")
+
     fg_ratio = float(binary.mean())
-    inverted = fg_ratio > 0.5
+    inverted = (binarization == "otsu_bright") and (fg_ratio > 0.5)
 
-    _step("binary", "Otsu Binarisation",
-          "Otsu picks T that maximises between-class variance σ²_B = w₀·w₁·(μ₀−μ₁)². "
-          f"T={otsu_t}. Foreground ratio {fg_ratio:.1%} → "
-          f"{'polarity inverted (bright background)' if inverted else 'no inversion needed'}.",
+    binary_details: dict = {
+        "binarization_mode": binarization,
+        "otsu_threshold": otsu_t,
+        "foreground_ratio": round(fg_ratio, 4),
+        "polarity_inverted": inverted,
+        "foreground_pixels": int(binary.sum()),
+    }
+    if return_steps:
+        _bin_summary = _binary_stage_summary(binary)
+        binary_details["component_summary"] = _bin_summary
+        # Surface-dominant: one large blob dominates — typical reversed LCD pattern.
+        binary_details["surface_dominant"] = (
+            _bin_summary["count"] < 8 and _bin_summary["largest_ratio"] > 0.15
+        )
+
+    if binarization == "otsu_bright":
+        bin_desc = (
+            "Otsu picks T that maximises between-class variance sigma_B^2 = w0*w1*(mu0-mu1)^2. "
+            f"T={otsu_t}. Foreground ratio {fg_ratio:.1%} -> "
+            f"{'polarity inverted (bright background)' if inverted else 'no inversion needed'}."
+        )
+    elif binarization == "otsu_dark":
+        bin_desc = (
+            f"Otsu dark: T={otsu_t}, dark pixels (< T) = foreground. "
+            f"Targets reversed LCD displays where digit segments are dark. "
+            f"Foreground ratio {fg_ratio:.1%}."
+        )
+    else:
+        bin_desc = (
+            f"Local mean adaptive threshold (window={local_mean_window}, offset={local_mean_offset}, "
+            f"polarity='{binarization.split('_')[-1]}'). "
+            f"Pixel is foreground if it differs from its local neighbourhood mean by > {local_mean_offset}. "
+            f"Foreground ratio {fg_ratio:.1%}."
+        )
+
+    _step("binary", "Binarisation",
+          bin_desc,
           visualisation.binary(binary),
-          {"otsu_threshold": otsu_t, "foreground_ratio": round(fg_ratio, 4),
-           "polarity_inverted": inverted, "foreground_pixels": int(binary.sum())})
+          binary_details)
 
-    # ── Morphologische Filter: Opening entfernt Rauschen ─────────────────────
-    kernel = morphology.make_rect_kernel(morph_kernel_size, morph_kernel_size)
+    # ── Morphologie ───────────────────────────────────────────────────────────
+    kh = morph_kernel_height if morph_kernel_height > 0 else morph_kernel_size
+    kw = morph_kernel_width if morph_kernel_width > 0 else morph_kernel_size
+    kernel = morphology.make_rect_kernel(kh, kw)
     px_before = int(binary.sum())
-    binary = morphology.opening(binary, kernel)
-    px_after_open = int(binary.sum())
+    binary = morphology.apply_variant(binary, morph_type, kernel)
+    px_after_morph = int(binary.sum())
 
-    _step("opening", "Morphological Opening (Denoise)",
-          f"opening = dilate(erode(B,K), K) with {morph_kernel_size}×{morph_kernel_size} kernel. "
-          "Erosion destroys blobs smaller than K; dilation restores survivors. "
-          "Permanently removes isolated noise pixels.",
+    morph_details: dict = {
+        "morph_type": morph_type, "kernel_height": kh, "kernel_width": kw,
+        "pixels_before": px_before, "pixels_after": px_after_morph,
+        "pixels_removed": px_before - px_after_morph,
+    }
+    if return_steps:
+        morph_details["component_summary"] = _binary_stage_summary(binary)
+
+    _step("opening", f"Morphology ({morph_type}, {kh}x{kw} kernel)",
+          f"variant={morph_type!r}, kernel={kh}x{kw}. "
+          + ("opening = dilate(erode(B,K), K): erode removes blobs smaller than K, dilate restores survivors. "
+             if morph_type == "opening" else "")
+          + "Pixels removed: "
+          + str(px_before - px_after_morph) + ".",
           visualisation.binary(binary),
-          {"kernel_size": morph_kernel_size, "pixels_before": px_before,
-           "pixels_after": px_after_open, "pixels_removed": px_before - px_after_open})
+          morph_details)
 
     # ── Sequential Labeling — Zwei-Pass mit Union-Find ────────────────────────
-    labels = labeling.label_components(binary)
+    if backend == "rust":
+        import segreader_native as _native
+        labels = _native.label_components(binary)
+    else:
+        labels = labeling.label_components(binary)
     all_stats = labeling.get_component_stats(labels)
-    kept_stats, rejected_stats = segment.filter_components(all_stats, binary.shape[0], binary.shape[1])
+    kept_stats, rejected_stats, component_fallback_used = segment.filter_components_with_fallback(
+        all_stats, binary.shape[0], binary.shape[1]
+    )
     kept_set = {s["label"] for s in kept_stats}
 
     _step("components", "Connected Component Labeling",
@@ -138,6 +247,8 @@ def run_pipeline(
           "Each colour is one component. Grey = will be rejected.",
           visualisation.components(labels, all_stats, kept_set),
           {"total_components": len(all_stats),
+           "image_height": binary.shape[0],
+           "image_width": binary.shape[1],
            "components": [{"label": s["label"], "area": s["area"],
                            "bbox": list(s["bbox"]),
                            "aspect_ratio": round(s["aspect_ratio"], 2),
@@ -151,10 +262,12 @@ def run_pipeline(
           "Rule ①: area < 30 px → noise (purple). "
           "Rule ②: h/w > 2.0 AND area < 200 → colon/dot (purple). "
           "Rule ③: area > 15 % of image → background outlier (orange). "
-          "Green = kept.",
+          "Green = kept."
+          + (" [Fallback: background rule relaxed]" if component_fallback_used else ""),
           visualisation.filter_result(labels, kept_stats + rejected_stats, kept_set),
           {"total": len(all_stats), "kept": len(kept_stats),
            "rejected_count": len(rejected),
+           "component_fallback_used": component_fallback_used,
            "rejected": [{"label": s["label"], "area": s["area"],
                          "aspect_ratio": round(s["aspect_ratio"], 2),
                          "reason": visualisation.rejection_reason(s)}
@@ -251,18 +364,28 @@ def run_pipeline(
           {"number": number_str, "digits": digits, "has_unknowns": "?" in number_str})
 
     # ── Fallback: retry without localization if result contains unknowns ─────
-    if localize and "?" in number_str:
+    if localize and localize_fallback and "?" in number_str:
         return run_pipeline(
             path,
             backend=backend,
             contrast_alpha=contrast_alpha,
             morph_kernel_size=morph_kernel_size,
+            morph_type=morph_type,
+            morph_kernel_height=morph_kernel_height,
+            morph_kernel_width=morph_kernel_width,
             projection_threshold_factor=projection_threshold_factor,
             segment_threshold=segment_threshold,
             min_gap=min_gap,
             max_width=max_width,
             return_steps=return_steps,
             localize=False,
+            localize_method=localize_method,
+            localize_fallback=localize_fallback,
+            localize_useful_ratio=localize_useful_ratio,
+            localize_shrink=localize_shrink,
+            binarization=binarization,
+            local_mean_window=local_mean_window,
+            local_mean_offset=local_mean_offset,
         )
 
     if return_steps:

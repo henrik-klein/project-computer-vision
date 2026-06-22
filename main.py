@@ -57,7 +57,7 @@ def main() -> None:
             return_steps=args.processed,
             localize=not args.no_localize,
         )
-    except ValueError as e:
+    except (ValueError, ImportError) as e:
         print(f"Fehler: {e}", file=sys.stderr)
         sys.exit(3)
 

@@ -6,6 +6,7 @@ just to write processed-step output.
 import base64
 import json
 import os
+from pathlib import Path
 
 import cv2
 
@@ -62,4 +63,4 @@ def save_processed_steps(
             indent=2,
         )
 
-    return json_path
+    return Path(json_path).as_posix()

@@ -456,10 +456,19 @@ dropZone.addEventListener('drop', e => {
   handleFile(e.dataTransfer.files[0]);
 });
 
+// ── Path helper ───────────────────────────────────────────────────────────────
+function toProjectUrl(path) {
+  if (!path) return path;
+  const normalized = String(path).replaceAll('\\', '/');
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
+  if (normalized.startsWith('/')) return normalized;
+  return '/' + normalized.replace(/^\.?\//, '');
+}
+
 // ── URL param: ?json=path (works with http server) ───────────────────────────
 const jsonParam = new URLSearchParams(location.search).get('json');
 if (jsonParam) {
-  fetch(jsonParam)
+  fetch(toProjectUrl(jsonParam))
     .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
     .then(loadData)
     .catch(err => showError('Could not load: ' + err.message));

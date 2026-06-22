@@ -219,6 +219,33 @@ def _find_by_contour(
 # Public API
 # ---------------------------------------------------------------------------
 
+def shrink_bbox(
+    ox: int,
+    oy: int,
+    w: int,
+    h: int,
+    shrink: float,
+    min_w: int = 20,
+    min_h: int = 10,
+) -> tuple[int, int, int, int]:
+    """Shrink a bounding box inward by *shrink* fraction (0.0–1.0 exclusive).
+
+    Each edge moves inward by shrink/2 of the corresponding dimension, so
+    the total reduction is shrink of width and shrink of height.
+
+    Returns (new_ox, new_oy, new_w, new_h).  The new origin can only move
+    inward (ox and oy can only increase), so the shrunk box always lies
+    within the original box.  The dimensions are clamped to min_w × min_h.
+    """
+    dx = int(w * shrink / 2)
+    dy = int(h * shrink / 2)
+    new_w = max(min_w, w - 2 * dx)
+    new_h = max(min_h, h - 2 * dy)
+    new_ox = ox + dx
+    new_oy = oy + dy
+    return new_ox, new_oy, new_w, new_h
+
+
 def find_display(
     img_bgr: np.ndarray,
     method: str = "auto",
@@ -229,12 +256,15 @@ def find_display(
     canny_high: int = 150,
     dilate_iters: int = 2,
     pad_px: int = 10,
-) -> tuple[np.ndarray, np.ndarray, bool, str]:
+    useful_ratio: float = 0.75,
+) -> tuple[np.ndarray, np.ndarray, bool, str, tuple[int, int]]:
     """Locate a segment display region in a scene image.
 
     method: "brightness" | "color" | "contour" | "auto"
 
-    Returns (crop, debug_img, found, method_used).
+    Returns (crop, debug_img, found, method_used, offset) where offset is the
+    (x, y) pixel origin of the crop within the original image, used to project
+    digit boxes back onto the full frame.
     """
     shared = dict(close_ksize=close_ksize, min_area_ratio=min_area_ratio, pad_px=pad_px)
     contour_args = dict(min_area_ratio=min_area_ratio, canny_low=canny_low,
@@ -251,12 +281,12 @@ def find_display(
         crop, debug, found, offset = _find_by_contour(img_bgr, **contour_args)
         method_used = "contour" if found else "none"
     elif method == "auto":
-        # A crop that covers ≥75 % of the original image didn't really isolate
-        # anything useful — treat it the same as "not found" and try the next method.
+        # A crop that covers ≥ useful_ratio of the original image didn't really
+        # isolate anything useful — treat it the same as "not found" and try next.
         img_area = img_bgr.shape[0] * img_bgr.shape[1]
 
         def _useful(c) -> bool:
-            if c is None or (c.shape[0] * c.shape[1]) >= 0.75 * img_area:
+            if c is None or (c.shape[0] * c.shape[1]) >= useful_ratio * img_area:
                 return False
             # Reject portrait-oriented crops — a 7-segment display is always wider than tall.
             if c.shape[1] > 0 and c.shape[0] / c.shape[1] > 1.2:
