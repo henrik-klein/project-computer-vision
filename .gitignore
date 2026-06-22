@@ -1,13 +1,22 @@
+# Python / uv
 .venv/
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 .pytest_cache/
-*.egg-info/
-dist/
-build/
-.DS_Store
+.ruff_cache/
+.mypy_cache/
 
+# Generated evaluation/viewer files
+data/processed/
+data/testing/result.json
+data/testing/result_*.json
 
-data/samples/*_annotated*
-data/processed/*
+# Rust build artifacts
+rust/segreader-native/target/
+
+# Native build outputs
+*.pyd
+*.dll
+*.dll.lib
+*.dll.exp
+*.pdb

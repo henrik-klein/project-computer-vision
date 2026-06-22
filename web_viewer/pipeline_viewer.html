@@ -928,6 +928,14 @@ dropZone.addEventListener('drop', e => {
   handleFile(e.dataTransfer.files[0]);
 });
 
+// ── Path helper ───────────────────────────────────────────────────────────────
+function toProjectUrl(path) {
+  if (!path) return path;
+  const normalized = String(path).replaceAll('\\', '/');
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
+  if (normalized.startsWith('/')) return normalized;
+  return '/' + normalized.replace(/^\.?\//, '');
+}
 // ── Fullscreen ────────────────────────────────────────────────────────────────
 function toggleFullscreen() {
   if (!document.fullscreenElement) {
@@ -948,7 +956,7 @@ const jsonParam  = _urlParams.get('json');
 const presParam  = _urlParams.get('pres') === '1';
 
 if (jsonParam) {
-  fetch(jsonParam)
+  fetch(toProjectUrl(jsonParam))
     .then(r => { if (!r.ok) throw new Error(r.statusText); return r.json(); })
     .then(data => {
       loadData(data);

@@ -963,7 +963,7 @@ function openModal(c) {
     _currentStepsJson = c.stepsJson;
     document.getElementById('modal-pres-btn').style.display = 'flex';
     bodyEl.style.display  = 'none';
-    iframe.src            = `pipeline_viewer.html?json=${encodeURIComponent(c.stepsJson)}`;
+    iframe.src            = `pipeline_viewer.html?json=${encodeURIComponent(toProjectUrl(c.stepsJson))}`;
     iframe.style.display  = 'block';
     document.getElementById('modal-backdrop').classList.add('open');
     return;
@@ -1103,10 +1103,21 @@ window.addEventListener('resize', () => {
 });
 
 // ─────────────────────────────────────────────
+//  Path helpers
+// ─────────────────────────────────────────────
+function toProjectUrl(path) {
+  if (!path) return path;
+  const normalized = String(path).replaceAll('\\', '/');
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
+  if (normalized.startsWith('/')) return normalized;
+  return '/' + normalized.replace(/^\.?\//, '');
+}
+
+// ─────────────────────────────────────────────
 //  Auto-load defaults on page load
 // ─────────────────────────────────────────────
-const DEFAULT_SAMPLES = 'data/testing/samples.json';
-const DEFAULT_RESULTS = 'data/testing/result.json';
+const DEFAULT_SAMPLES = '/data/testing/samples.json';
+const DEFAULT_RESULTS = '/data/testing/result.json';
 
 async function autoLoad() {
   const [samplesRes, resultsRes] = await Promise.allSettled([

@@ -5,12 +5,28 @@ import numpy as np
 
 from . import io, preprocess, morphology, labeling, segment, decode, backend as backend_mod
 from .decode import SEGMENT_ZONES
-from .localize import find_display
-from .visualisation import visualisation
+from .localize import find_display, shrink_bbox
+from . import visualisation
 
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────────────
+
+def _binary_stage_summary(binary: np.ndarray) -> dict:
+    """Fast component summary for diagnostic use only (cv2 CCL, 4-connectivity).
+
+    Returns count, largest_area, largest_ratio.  cv2 is already imported by
+    pipeline.py for I/O and localization — this is NOT part of the core algorithm.
+    """
+    n, _, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=4)
+    img_area = binary.shape[0] * binary.shape[1]
+    n_comp = n - 1  # label 0 is background
+    if n_comp <= 0 or img_area == 0:
+        return {"count": 0, "largest_area": 0, "largest_ratio": 0.0}
+    largest = int(stats[1:, cv2.CC_STAT_AREA].max())
+    return {"count": n_comp, "largest_area": largest,
+            "largest_ratio": round(largest / img_area, 4)}
+
 
 def run_pipeline(
     path: str,
@@ -23,6 +39,13 @@ def run_pipeline(
     max_width: int = 800,
     return_steps: bool = False,
     localize: bool = True,
+    localize_method: str = "auto",
+    localize_fallback: bool = True,
+    localize_useful_ratio: float = 0.75,
+    localize_shrink: float = 0.0,
+    binarization: str = "otsu_bright",
+    local_mean_window: int = 31,
+    local_mean_offset: int = 10,
 ) -> tuple:
     """Vollständige 7-Segment-Pipeline.
 
@@ -59,13 +82,28 @@ def run_pipeline(
 
     # ── Lokalisierung der Anzeigeregion ───────────────────────────────────────
     if localize:
-        crop, debug_img, found, method_used, crop_offset = find_display(img_bgr, method="auto")
+        crop, debug_img, found, method_used, crop_offset = find_display(
+            img_bgr, method=localize_method, useful_ratio=localize_useful_ratio
+        )
     else:
         crop, debug_img, found, method_used, crop_offset = img_bgr.copy(), img_bgr.copy(), False, "disabled", (0, 0)
+
+    # Optional inward crop-shrink to exclude display frame / border artefacts.
+    if localize_shrink > 0 and found:
+        ih, iw = img_bgr.shape[:2]
+        ox, oy = crop_offset
+        new_ox, new_oy, new_cw, new_ch = shrink_bbox(ox, oy, crop.shape[1], crop.shape[0], localize_shrink)
+        # Clamp to image bounds (only relevant when min_w/min_h clamp activated).
+        new_cw = min(new_cw, iw - new_ox)
+        new_ch = min(new_ch, ih - new_oy)
+        if new_cw > 0 and new_ch > 0:
+            crop = img_bgr[new_oy:new_oy + new_ch, new_ox:new_ox + new_cw].copy()
+            crop_offset = (new_ox, new_oy)
 
     img_area = img_bgr.shape[0] * img_bgr.shape[1]
     crop_area = crop.shape[0] * crop.shape[1]
     coverage = round(crop_area / img_area, 3)
+    crop_ar = round(crop.shape[1] / crop.shape[0], 3) if crop.shape[0] > 0 else None
 
     _step("localize", "Anzeige-Lokalisierung",
           "Lokalisierung deaktiviert — volles Bild verwendet." if not localize else
@@ -79,7 +117,10 @@ def run_pipeline(
           visualisation.localize(debug_img, method_used, found),
           {"method_used": method_used, "found": found,
            "crop_width": crop.shape[1], "crop_height": crop.shape[0],
-           "coverage": coverage})
+           "crop_x": crop_offset[0], "crop_y": crop_offset[1],
+           "crop_aspect_ratio": crop_ar,
+           "coverage": coverage,
+           "localize_shrink_applied": localize_shrink > 0 and found})
 
     # ── Punktoperation: Graustufenkonvertierung ───────────────────────────────
     gray = preprocess.to_grayscale(crop)
@@ -101,38 +142,59 @@ def run_pipeline(
           {"alpha": contrast_alpha,
            "min": int(gray.min()), "max": int(gray.max()), "mean": round(float(gray.mean()), 2)})
 
-    # ── Histogramm / Otsu-Schwellwert: Binarisierung ─────────────────────────
-    otsu_t = visualisation.otsu_threshold(gray) if return_steps else 0
-    binary = preprocess.otsu_binarize(gray)
+    # ── Binarisierung ─────────────────────────────────────────────────────────
+    _valid_binarizations = ("otsu_bright", "otsu_dark", "local_mean_dark", "local_mean_bright")
+    if binarization not in _valid_binarizations:
+        raise ValueError(f"Unknown binarization {binarization!r}. Options: {_valid_binarizations}")
+
+    otsu_t = 0
+    if binarization in ("otsu_bright", "otsu_dark"):
+        otsu_t = visualisation.otsu_threshold(gray) if return_steps else 0
+
+    if binarization == "otsu_bright":
+        binary = preprocess.otsu_binarize(gray)
+    elif binarization == "otsu_dark":
+        binary = preprocess.otsu_dark_binarize(gray)
+    elif binarization == "local_mean_dark":
+        binary = preprocess.local_mean_binarize(gray, local_mean_window, local_mean_offset, "dark")
+    else:  # local_mean_bright
+        binary = preprocess.local_mean_binarize(gray, local_mean_window, local_mean_offset, "bright")
+
     fg_ratio = float(binary.mean())
-    inverted = fg_ratio > 0.5
+    inverted = (binarization == "otsu_bright") and (fg_ratio > 0.5)
 
     _step("binary", "Otsu-Binarisierung",
           "Otsu wählt T, das die Zwischenklassen-Varianz σ²_B = w₀·w₁·(μ₀−μ₁)² maximiert. "
           f"T={otsu_t}. Vordergrundanteil {fg_ratio:.1%} → "
           f"{'Polarität invertiert (heller Hintergrund)' if inverted else 'keine Invertierung nötig'}.",
           visualisation.binary(binary),
-          {"otsu_threshold": otsu_t, "foreground_ratio": round(fg_ratio, 4),
-           "polarity_inverted": inverted, "foreground_pixels": int(binary.sum())})
+          binary_details)
 
-    # ── Morphologische Filter: Opening entfernt Rauschen ─────────────────────
-    kernel = morphology.make_rect_kernel(morph_kernel_size, morph_kernel_size)
+    # ── Morphologie ───────────────────────────────────────────────────────────
+    kh = morph_kernel_height if morph_kernel_height > 0 else morph_kernel_size
+    kw = morph_kernel_width if morph_kernel_width > 0 else morph_kernel_size
+    kernel = morphology.make_rect_kernel(kh, kw)
     px_before = int(binary.sum())
-    binary = morphology.opening(binary, kernel)
-    px_after_open = int(binary.sum())
+    binary = morphology.apply_variant(binary, morph_type, kernel)
+    px_after_morph = int(binary.sum())
 
     _step("opening", "Morphologisches Opening (Rauschunterdrückung)",
           f"Opening = dilate(erode(B,K), K) mit {morph_kernel_size}×{morph_kernel_size} Kern. "
           "Erosion zerstört Blobs kleiner als K; Dilatation stellt Überlebende wieder her. "
           "Entfernt isolierte Rauschpixel dauerhaft.",
           visualisation.binary(binary),
-          {"kernel_size": morph_kernel_size, "pixels_before": px_before,
-           "pixels_after": px_after_open, "pixels_removed": px_before - px_after_open})
+          morph_details)
 
     # ── Sequential Labeling — Zwei-Pass mit Union-Find ────────────────────────
-    labels = labeling.label_components(binary)
+    if backend == "rust":
+        import segreader_native as _native
+        labels = _native.label_components(binary)
+    else:
+        labels = labeling.label_components(binary)
     all_stats = labeling.get_component_stats(labels)
-    kept_stats = segment.filter_components(all_stats, binary.shape[0], binary.shape[1])
+    kept_stats, rejected_stats, component_fallback_used = segment.filter_components_with_fallback(
+        all_stats, binary.shape[0], binary.shape[1]
+    )
     kept_set = {s["label"] for s in kept_stats}
 
     _step("components", "Zusammenhängende Komponenten-Etikettierung",
@@ -140,6 +202,8 @@ def run_pipeline(
           "Jede Farbe ist eine Komponente. Grau = wird abgelehnt.",
           visualisation.components(labels, all_stats, kept_set),
           {"total_components": len(all_stats),
+           "image_height": binary.shape[0],
+           "image_width": binary.shape[1],
            "components": [{"label": s["label"], "area": s["area"],
                            "bbox": list(s["bbox"]),
                            "aspect_ratio": round(s["aspect_ratio"], 2),
@@ -147,7 +211,7 @@ def run_pipeline(
                           for s in all_stats]})
 
     # ── Rauschen und Doppelpunkt herausfiltern ────────────────────────────────
-    rejected = [s for s in all_stats if s["label"] not in kept_set]
+    rejected = rejected_stats
 
     _step("filtering", "Komponentenfilterung",
           "Regel ①: Fläche < 30 px → Rauschen (lila). "
@@ -157,6 +221,7 @@ def run_pipeline(
           visualisation.filter_result(labels, all_stats, kept_set),
           {"total": len(all_stats), "kept": len(kept_stats),
            "rejected_count": len(rejected),
+           "component_fallback_used": component_fallback_used,
            "rejected": [{"label": s["label"], "area": s["area"],
                          "aspect_ratio": round(s["aspect_ratio"], 2),
                          "reason": visualisation.rejection_reason(s)}
@@ -253,18 +318,28 @@ def run_pipeline(
           {"number": number_str, "digits": digits, "has_unknowns": "?" in number_str})
 
     # ── Fallback: retry without localization if result contains unknowns ─────
-    if localize and "?" in number_str:
+    if localize and localize_fallback and "?" in number_str:
         return run_pipeline(
             path,
             backend=backend,
             contrast_alpha=contrast_alpha,
             morph_kernel_size=morph_kernel_size,
+            morph_type=morph_type,
+            morph_kernel_height=morph_kernel_height,
+            morph_kernel_width=morph_kernel_width,
             projection_threshold_factor=projection_threshold_factor,
             segment_threshold=segment_threshold,
             min_gap=min_gap,
             max_width=max_width,
             return_steps=return_steps,
             localize=False,
+            localize_method=localize_method,
+            localize_fallback=localize_fallback,
+            localize_useful_ratio=localize_useful_ratio,
+            localize_shrink=localize_shrink,
+            binarization=binarization,
+            local_mean_window=local_mean_window,
+            local_mean_offset=local_mean_offset,
         )
 
     if return_steps:
