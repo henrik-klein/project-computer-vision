@@ -22,6 +22,7 @@ import os
 import shutil
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
@@ -121,6 +122,7 @@ def _process_image(
     from the steps list and stored under entry["pipeline_info"] so that the
     caller can build per-image diagnostics without reading back the steps JSON.
     """
+    t0 = time.perf_counter()
     number_str, annotated, steps = run_pipeline(
         path,
         backend=args.backend,
@@ -128,6 +130,7 @@ def _process_image(
         localize=not args.no_localize,
         return_steps=True,
     )
+    pipeline_time_ms = round((time.perf_counter() - t0) * 1000, 1)
 
     pipeline_info = extract_pipeline_info(steps) if collect_pipeline_info else None
 
@@ -141,14 +144,15 @@ def _process_image(
         pass
 
     entry = {
-        "predicted":   number_str,
-        "overlay_b64": image_to_b64(annotated),
-        "steps_json":  steps_json_path,
+        "predicted":        number_str,
+        "overlay_b64":      image_to_b64(annotated),
+        "steps_json":       steps_json_path,
+        "pipeline_time_ms": pipeline_time_ms,
     }
     if pipeline_info is not None:
         entry["pipeline_info"] = pipeline_info
 
-    log = f"-> {number_str!r}"
+    log = f"-> {number_str!r}  ({pipeline_time_ms:.0f} ms)"
     return stem, entry, log
 
 
@@ -615,6 +619,7 @@ def main() -> None:
             summary = compute_diagnostic_summary(ordered, ground_truth)
 
     # ── Assemble output JSON ──────────────────────────────────────────────────
+    times_ms = [e["pipeline_time_ms"] for e in ordered.values() if "pipeline_time_ms" in e]
     meta = {
         "timestamp":  datetime.now().isoformat(timespec="seconds"),
         "image_dir":  args.image_dir,
@@ -622,6 +627,9 @@ def main() -> None:
         "threshold":  args.threshold,
         "workers":    n_workers,
     }
+    if times_ms:
+        meta["mean_pipeline_time_ms"]  = round(sum(times_ms) / len(times_ms), 1)
+        meta["total_pipeline_time_ms"] = round(sum(times_ms), 1)
     if args.ground_truth:
         meta["ground_truth"] = args.ground_truth
     if args.diagnostics:
