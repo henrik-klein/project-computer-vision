@@ -19,10 +19,12 @@ import argparse
 import base64
 import json
 import os
+import shutil
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from pathlib import Path
 
 import cv2
 
@@ -81,6 +83,26 @@ MORPH_VARIANTS = [
 ]
 
 _print_lock = threading.Lock()
+
+VIEWER_RESULT_DEFAULT = "data/testing/result.json"
+
+
+def write_viewer_result(
+    output_path: str,
+    viewer_path: str = VIEWER_RESULT_DEFAULT,
+) -> str:
+    """Copy the evaluation JSON to the viewer's default load location.
+
+    If output_path and viewer_path resolve to the same file, the write is
+    skipped (the file is already in place).  Returns the project-relative
+    POSIX path that was written.
+    """
+    src = Path(output_path).resolve()
+    dst = Path(viewer_path)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    if src != dst.resolve():
+        shutil.copy2(src, dst)
+    return dst.as_posix()
 
 
 def image_to_b64(img) -> str:
@@ -442,6 +464,10 @@ def main() -> None:
         "--sweep-localization", action="store_true",
         help="Sweep localization variants (requires --ground-truth); skips normal eval",
     )
+    parser.add_argument(
+        "--viewer-result", action="store_true",
+        help=f"Also write result to {VIEWER_RESULT_DEFAULT} for the web viewer",
+    )
     args = parser.parse_args()
 
     if not os.path.isdir(args.image_dir):
@@ -617,6 +643,10 @@ def main() -> None:
                else "n/a")
         suffix = f", {summary['correct']}/{summary['evaluated']} correct ({acc})"
     print(f"\nDone. {total} image(s), {errors} error(s){suffix}. Saved to {args.output}")
+
+    if args.viewer_result:
+        viewer_path = write_viewer_result(args.output)
+        print(f"Viewer result updated: {viewer_path}")
 
 
 if __name__ == "__main__":
