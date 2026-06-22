@@ -62,21 +62,30 @@ def filter_components(
     colon_aspect_min: float = 2.0,
     colon_area_max: int = 200,
     max_area_ratio: float = 0.15,
-) -> list:
+) -> tuple:
     """Entfernt Rausch-Blobs, Doppelpunkt-Punkte und Hintergrund-Outlier.
 
-    Jede abgelehnte Komponente erhält ein 'rejection_reason'-Feld für die Visualisierung.
+    Gibt (kept, rejected) zurück. Eingabe-Dicts werden nicht verändert.
+    Jedes dict in `rejected` enthält ein 'rejection_reason'-Feld.
+    Jedes dict in `kept` ist eine flache Kopie ohne 'rejection_reason'.
     """
     max_area = max_area_ratio * image_height * image_width if image_width > 0 else float("inf")
 
-    kept = []
+    kept: list = []
+    rejected: list = []
     for s in stats:
         if s["area"] < min_area:
-            s["rejection_reason"] = f"noise: area {s['area']} < {min_area}"
+            reason = f"noise: area {s['area']} < {min_area}"
         elif s["aspect_ratio"] > colon_aspect_min and s["area"] < colon_area_max:
-            s["rejection_reason"] = f"colon/dot: h/w={s['aspect_ratio']:.1f}>{colon_aspect_min}, area={s['area']}<{colon_area_max}"
+            reason = f"colon/dot: h/w={s['aspect_ratio']:.1f}>{colon_aspect_min}, area={s['area']}<{colon_area_max}"
         elif s["area"] > max_area:
-            s["rejection_reason"] = f"background: area {s['area']} > {max_area:.0f}px ({max_area_ratio:.0%} of image)"
+            reason = f"background: area {s['area']} > {max_area:.0f}px ({max_area_ratio:.0%} of image)"
         else:
-            kept.append(s)
-    return kept
+            reason = None
+
+        if reason is None:
+            kept.append(dict(s))
+        else:
+            rejected.append({**s, "rejection_reason": reason})
+
+    return kept, rejected

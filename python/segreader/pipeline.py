@@ -130,7 +130,7 @@ def run_pipeline(
     # ── Sequential Labeling — Zwei-Pass mit Union-Find ────────────────────────
     labels = labeling.label_components(binary)
     all_stats = labeling.get_component_stats(labels)
-    kept_stats = segment.filter_components(all_stats, binary.shape[0], binary.shape[1])
+    kept_stats, rejected_stats = segment.filter_components(all_stats, binary.shape[0], binary.shape[1])
     kept_set = {s["label"] for s in kept_stats}
 
     _step("components", "Connected Component Labeling",
@@ -145,14 +145,14 @@ def run_pipeline(
                           for s in all_stats]})
 
     # ── Rauschen und Doppelpunkt herausfiltern ────────────────────────────────
-    rejected = [s for s in all_stats if s["label"] not in kept_set]
+    rejected = rejected_stats
 
     _step("filtering", "Component Filtering",
           "Rule ①: area < 30 px → noise (purple). "
           "Rule ②: h/w > 2.0 AND area < 200 → colon/dot (purple). "
           "Rule ③: area > 15 % of image → background outlier (orange). "
           "Green = kept.",
-          visualisation.filter_result(labels, all_stats, kept_set),
+          visualisation.filter_result(labels, kept_stats + rejected_stats, kept_set),
           {"total": len(all_stats), "kept": len(kept_stats),
            "rejected_count": len(rejected),
            "rejected": [{"label": s["label"], "area": s["area"],
