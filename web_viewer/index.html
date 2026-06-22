@@ -203,6 +203,14 @@
   .modal-title { font-size: 1rem; font-weight: 600; color: #f8fafc; font-family: monospace; }
   .modal-close { background: none; border: none; color: #64748b; font-size: 1.4rem; cursor: pointer; line-height: 1; padding: 0.2rem 0.4rem; border-radius: 4px; }
   .modal-close:hover { color: #e2e8f0; background: #334155; }
+  #modal-pres-btn {
+    display: none; align-items: center; gap: .4rem;
+    background: transparent; border: 1.5px solid #334155;
+    color: #94a3b8; border-radius: 7px;
+    padding: .3rem .85rem; font-size: .8rem; font-weight: 600;
+    cursor: pointer; transition: all .15s; white-space: nowrap;
+  }
+  #modal-pres-btn:hover { border-color: #6366f1; color: #e2e8f0; }
   .modal-body { padding: 1.5rem; }
   .modal-img { width: 100%; border-radius: 8px; display: block; background: #0f1117; object-fit: contain; max-height: 380px; }
   .modal-img-placeholder { width: 100%; height: 180px; background: #0f1117; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #334155; }
@@ -353,6 +361,10 @@
   <div class="modal">
     <div class="modal-header">
       <span class="modal-title" id="modal-title">—</span>
+      <button id="modal-pres-btn" title="Im neuen Tab als Präsentation öffnen">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        Präsentation
+      </button>
       <button class="modal-close" id="modal-close">✕</button>
     </div>
     <div class="modal-body" id="modal-body">
@@ -400,6 +412,7 @@ const CHANNEL_COLOR = { gray:'#94a3b8', R:'#f87171', G:'#4ade80', B:'#60a5fa' };
 // ─────────────────────────────────────────────
 let samplesData = null, resultsData = null, cards = [], activeFilter = 'all';
 let rankedData  = [], sortCol = 'pct', sortDir = -1;
+let _currentStepsJson = null;
 
 // ─────────────────────────────────────────────
 //  File loading
@@ -947,12 +960,16 @@ function openModal(c) {
   const bodyEl = document.getElementById('modal-body');
 
   if (c.stepsJson) {
+    _currentStepsJson = c.stepsJson;
+    document.getElementById('modal-pres-btn').style.display = 'flex';
     bodyEl.style.display  = 'none';
     iframe.src            = `pipeline_viewer.html?json=${encodeURIComponent(toProjectUrl(c.stepsJson))}`;
     iframe.style.display  = 'block';
     document.getElementById('modal-backdrop').classList.add('open');
     return;
   }
+  _currentStepsJson = null;
+  document.getElementById('modal-pres-btn').style.display = 'none';
 
   iframe.style.display = 'none';
   iframe.src           = '';
@@ -1055,7 +1072,18 @@ function closeModal() {
   iframe.src           = '';
   iframe.style.display = 'none';
   document.getElementById('modal-body').style.display = 'block';
+  _currentStepsJson = null;
+  document.getElementById('modal-pres-btn').style.display = 'none';
 }
+
+document.getElementById('modal-pres-btn').addEventListener('click', () => {
+  if (_currentStepsJson) {
+    window.open(
+      `pipeline_viewer.html?json=${encodeURIComponent(_currentStepsJson)}&pres=1`,
+      '_blank'
+    );
+  }
+});
 document.getElementById('modal-close').addEventListener('click', closeModal);
 document.getElementById('modal-backdrop').addEventListener('click', e => { if(e.target===document.getElementById('modal-backdrop')) closeModal(); });
 document.addEventListener('keydown', e => { if(e.key==='Escape') closeModal(); });

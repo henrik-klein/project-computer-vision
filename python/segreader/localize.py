@@ -2,23 +2,28 @@
 
 Three strategies selectable via the `method` parameter:
 
-  "brightness" — thresholds bright, saturated pixels in HSV (Kurs 10); works
-                 for any colored LED/7-segment display on a dark background
-                 regardless of segment color. Morphological closing (Kurs 07)
-                 bridges gaps between individual digit strokes.
+  "brightness"      — thresholds bright, saturated pixels in HSV (Kurs 10); works
+                      for any colored LED/7-segment display on a dark background
+                      regardless of segment color. Morphological closing (Kurs 07)
+                      bridges gaps between individual digit strokes.
 
-  "color"      — same as brightness but uses explicit per-hue ranges (Kurs 10),
-                 covering the full LED spectrum (red, orange, yellow, green,
-                 cyan, blue). More selective than brightness alone.
+  "color"           — same as brightness but uses explicit per-hue ranges (Kurs 10),
+                      covering the full LED spectrum (red, orange, yellow, green,
+                      cyan, blue). More selective than brightness alone.
 
-  "contour"    — Canny edge detection (Kurs 05), morphological dilation (Kurs 07),
-                 contour analysis + approxPolyDP quad detection (Kurs 05/06),
-                 perspective warp when 4 corners found (Kurs 06). Best for
-                 displays with a clear rectangular border on any background.
+  "top_brightness"  — scene-adaptive: thresholds only the brightest pixels by
+                      taking the 93rd percentile of the V channel (minimum V=180).
+                      Finds glowing displays even when the background is medium-bright.
 
-  "auto"       — tries color → brightness → contour in order; returns the first
-                 that finds a region large enough. Order reflects empirical data:
-                 color+B channel outperforms brightness+gray across the test set.
+  "contour"         — Canny edge detection (Kurs 05), morphological dilation (Kurs 07),
+                      contour analysis + approxPolyDP quad detection (Kurs 05/06),
+                      perspective warp when 4 corners found (Kurs 06). Best for
+                      displays with a clear rectangular border on any background.
+
+  "auto"            — tries color → brightness → top_brightness → contour in order;
+                      returns the first that finds a region large enough. Order
+                      reflects empirical data: color+B channel outperforms
+                      brightness+gray across the test set.
 """
 from __future__ import annotations
 
@@ -147,6 +152,31 @@ def _find_by_color(
 
     return _crop_from_mask(img_bgr, mask, close_ksize, min_area_ratio, pad_px,
                            "Display (color)")
+
+
+# ---------------------------------------------------------------------------
+# Top-brightness localization — scene-adaptive (Kurs 10 + 07)
+# Takes only the top-N% brightest pixels; robust to medium-bright backgrounds.
+# ---------------------------------------------------------------------------
+
+def _find_by_top_brightness(
+    img_bgr: np.ndarray,
+    percentile: float = 93.0,
+    abs_min: int = 180,
+    close_ksize: int | None = None,
+    min_area_ratio: float = 0.005,
+    pad_px: int = 10,
+) -> tuple[np.ndarray | None, np.ndarray, bool, tuple[int, int]]:
+    if close_ksize is None:
+        close_ksize = _adaptive_close_ksize(img_bgr)
+
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    v = hsv[:, :, 2]
+    threshold = max(abs_min, np.percentile(v, percentile))
+    mask = (v >= threshold).astype(np.uint8) * 255
+
+    return _crop_from_mask(img_bgr, mask, close_ksize, min_area_ratio, pad_px,
+                           "Display (top_brightness)")
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +328,9 @@ def find_display(
         if not found or not _useful(crop):
             crop, debug, found, offset = _find_by_brightness(img_bgr, **shared)
             method_used = "brightness"
+        if not found or not _useful(crop):
+            crop, debug, found, offset = _find_by_top_brightness(img_bgr, **shared)
+            method_used = "top_brightness"
         if not found or not _useful(crop):
             crop, debug, found, offset = _find_by_contour(img_bgr, **contour_args)
             method_used = "contour"
