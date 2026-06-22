@@ -13,8 +13,13 @@ def adjust_contrast(gray: np.ndarray, alpha: float = 1.5, beta: int = 0) -> np.n
     return np.clip(stretched, 0, 255).astype(np.uint8)
 
 
-def otsu_binarize(gray: np.ndarray) -> np.ndarray:
-    # Histogramm / Otsu-Schwellwert: maximiert die Zwischen-Klassen-Varianz
+def _compute_otsu_threshold(gray: np.ndarray) -> int:
+    """Berechnet den Otsu-Schwellwert durch Maximierung der Zwischen-Klassen-Varianz.
+
+    Gibt nur den Schwellwert als int zurück — keine Maske, keine Polaritätskorrektur.
+    Eingabe wird nicht verändert.
+    """
+    # Histogramm / normierte Wahrscheinlichkeiten
     hist = np.bincount(gray.ravel(), minlength=256).astype(np.float64)
     total = hist.sum()
     prob = hist / total
@@ -32,7 +37,12 @@ def otsu_binarize(gray: np.ndarray) -> np.ndarray:
         mu1 = np.where(w1 > 0, (global_mean - cum_mean) / w1, 0.0)
     sigma_b2 = w0 * w1 * (mu0 - mu1) ** 2
 
-    threshold = int(np.argmax(sigma_b2))
+    return int(np.argmax(sigma_b2))
+
+
+def otsu_binarize(gray: np.ndarray) -> np.ndarray:
+    # Otsu-Schwellwert berechnen, dann binarisieren
+    threshold = _compute_otsu_threshold(gray)
     binary = (gray > threshold).astype(np.uint8)
 
     # Polaritätskorrektur (Punktoperation): heller Hintergrund -> invertieren

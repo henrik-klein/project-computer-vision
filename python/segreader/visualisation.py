@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 
 from .decode import SEGMENT_ZONES
+from .preprocess import _compute_otsu_threshold
 
 
 class visualisation:
@@ -118,16 +119,7 @@ class visualisation:
 
     @staticmethod
     def otsu_threshold(gray: np.ndarray) -> int:
-        hist = np.bincount(gray.ravel(), minlength=256).astype(np.float64)
-        prob = hist / hist.sum()
-        cum_prob = np.cumsum(prob)
-        cum_mean = np.cumsum(prob * np.arange(256, dtype=np.float64))
-        global_mean = cum_mean[-1]
-        w0, w1 = cum_prob, 1.0 - cum_prob
-        with np.errstate(divide="ignore", invalid="ignore"):
-            mu0 = np.where(w0 > 0, cum_mean / w0, 0.0)
-            mu1 = np.where(w1 > 0, (global_mean - cum_mean) / w1, 0.0)
-        return int(np.argmax(w0 * w1 * (mu0 - mu1) ** 2))
+        return _compute_otsu_threshold(gray)
 
     @staticmethod
     def rejection_reason(s: dict) -> str:
