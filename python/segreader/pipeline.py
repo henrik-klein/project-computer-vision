@@ -17,7 +17,7 @@ def run_pipeline(
     backend: str = "python",
     contrast_alpha: float = 1.5,
     morph_kernel_size: int = 3,
-    projection_threshold_factor: float = 0.05,
+    projection_threshold_factor: float = 0.07,
     segment_threshold: float = 0.3,
     min_gap: int = 1,
     max_width: int = 800,
@@ -69,9 +69,11 @@ def run_pipeline(
 
     _step("localize", "Anzeige-Lokalisierung",
           "Lokalisierung deaktiviert — volles Bild verwendet." if not localize else
-          "Auto-Strategie probiert Farbe → Helligkeit → Kontur der Reihe nach. "
+          "Auto-Strategie probiert Farbe → Helligkeit → top_brightness → Kontur der Reihe nach. "
           "Eine Methode wird nur akzeptiert, wenn der Ausschnitt weniger als 75 % des Originalbildes bedeckt — "
           "größere Ausschnitte bedeuten, dass nichts isoliert wurde, und die nächste Methode wird versucht. "
+          "top_brightness: szenenadaptiv — nimmt nur die hellsten X% aller Pixel (93. Perzentil, mindestens V=180). "
+          "Findet leuchtende Displays auch wenn der Hintergrund mittelhell ist. "
           f"Gewinner: '{method_used}' ({'gefunden' if found else 'nicht gefunden — volles Bild verwendet'}, "
           f"Ausschnitt bedeckt {coverage:.1%} des Originals).",
           visualisation.localize(debug_img, method_used, found),
